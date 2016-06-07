@@ -1,7 +1,7 @@
 language: python
 
 # sudo false implies containerized builds, so we can use cacheing
-sudo: false
+#sudo: false
 
 python:
   - 2.7
@@ -9,24 +9,31 @@ python:
   - 3.4
   - 3.5
 
-# These are mostly requirements of instaseis
 env:
-  - CONDA_DEPS="pip flake8 nose coverage numpy scipy matplotlib h5py future requests tornado flake8 pytest mock basemap pyqt pip" PIP_DEPS="coveralls responses pyqtgraph"
 
 before_install:
 - export MINICONDA=$HOME/miniconda
 - export PATH="$MINICONDA/bin:$PATH"
 - hash -r
+# Install gfortran (for instaseis)
+- sudo apt-get update
+- sudo apt-get install -qq gfortran
 # Install conda only if necessary
 - command -v conda >/dev/null || { wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh;
    bash miniconda.sh -b -f -p $MINICONDA; }
-- conda config --set always_yes yes
-- conda update conda
-- conda info -a
-- conda install python=$TRAVIS_PYTHON_VERSION $CONDA_DEPS
+- conda update --yes conda
+- conda create --yes -n condaenv python=$TRAVIS_PYTHON_VERSION
+- conda install --yes -n condaenv pip
+- source activate condaenv
+# The next couple lines fix a crash with multiprocessing on Travis and are not specific to using Miniconda
+- sudo rm -rf /dev/shm
+- sudo ln -s /run/shm /dev/shm
+# These are mostly requirements of instaseis
+- conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
 - travis_retry pip install $PIP_DEPS
 - git clone https://github.com/krischer/instaseis.git
-- pip install -v -e ./instaseis
+- cd ./instaseis
+- pip install -v -e .
 
 install:
 - python setup.py install --record installed_files.txt
