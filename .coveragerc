@@ -1,0 +1,7 @@
+[run]
+branch = True
+source = stfinv/*
+include = stfinv/*
+omit = */setup.py
+[report]
+include = stfinv/*
