@@ -2,7 +2,7 @@ import numpy as np
 import numpy.testing as npt
 import instaseis
 from obspy.geodetics import gps2dist_azimuth
-from .stfinv import seiscomp_to_moment_tensor
+from stfinv import seiscomp_to_moment_tensor
 
 
 def test_seiscomp_to_moment_tensor():
@@ -15,7 +15,7 @@ def test_seiscomp_to_moment_tensor():
     reclat = 10.0
     reclon = 10.0
 
-    evdepth = evdepth
+    evdepth = 10.0
 
     # gps2dist_azimuth is not optimal here, since we need the geographical
     # coordinates, and not WGS84. Try to get around it by switching ellipticity
