@@ -18,7 +18,7 @@ import os
 
 # General information about the project.
 project = 'stfinv'
-copyright = '2016, Simon Stähler'
+copyright = '2016, Simon Staehler'
 
 currentdir = os.path.abspath(os.path.dirname(__file__))
 ver_file = os.path.join(currentdir, '..', project, 'version.py')
@@ -232,7 +232,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
   ('index', 'stfinv.tex', 'stfinv Documentation',
-   'Simon Stähler', 'manual'),
+   'Simon Staehler', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -262,7 +262,7 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'stfinv', 'stfinv Documentation',
-     ['Simon Stähler'], 1)
+     ['Simon Staehler'], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -276,7 +276,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
   ('index', 'stfinv', 'stfinv Documentation',
-   'Simon Stähler', 'stfinv', 'One line description of project.',
+   'Simon Staehler', 'stfinv', 'One line description of project.',
    'Miscellaneous'),
 ]
 
