@@ -70,7 +70,7 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
     st_data = obspy.Stream()
     st_synth = obspy.Stream()
 
-    for tr in stream[0:6]:
+    for tr in stream:
         tr_work = tr.copy()
 
         distance, azi, bazi = gps2dist_azimuth(tr.stats.sac['stla'],
