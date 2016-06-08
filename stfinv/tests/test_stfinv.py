@@ -2,7 +2,8 @@ import numpy as np
 import numpy.testing as npt
 import instaseis
 from obspy.geodetics import gps2dist_azimuth
-from stfinv import seiscomp_to_moment_tensor
+import obspy
+from stfinv import seiscomp_to_moment_tensor, shift_waveform
 
 
 def test_seiscomp_to_moment_tensor():
@@ -80,3 +81,23 @@ def test_seiscomp_to_moment_tensor():
                                   err_msg='M_xz not the same')
     npt.assert_array_almost_equal(m_yz, m_yz_ref, decimal=3,
                                   err_msg='M_yz not the same')
+
+
+def test_shift_waveform():
+
+    data_test = [0, 0, 1, 2, 1, 0, 0]
+    tr_test = obspy.Trace(np.array(data_test))
+    tr_test.stats.delta = 0.1
+
+    # Shift backwards by 0.2 s
+    tr_shift = shift_waveform(tr_test, 0.2)
+    data_ref = [0, 0, 0, 0, 1, 2, 1]
+
+    npt.assert_array_almost_equal(tr_shift.data, data_ref, decimal=3,
+                                  err_msg='Shifted data not as expected')
+    # Shift forwards by 0.2 s
+    tr_shift = shift_waveform(tr_test, -0.2)
+    data_ref = [1, 2, 1, 0, 0, 0, 0]
+
+    npt.assert_array_almost_equal(tr_shift.data, data_ref, decimal=3,
+                                  err_msg='Shifted data not as expected')

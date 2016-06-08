@@ -2,9 +2,13 @@ import numpy as np
 import obspy
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
+from scipy import signal
+import scipy.fftpack as fft
 
 
-__all__ = ["seiscomp_to_moment_tensor", "get_synthetics"]
+__all__ = ["seiscomp_to_moment_tensor",
+           "get_synthetics",
+           "shift_waveform"]
 
 
 def seiscomp_to_moment_tensor(st_in, azimuth, scalmom=1.0):
@@ -132,3 +136,36 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
                   (tr.stats.station, distance))
 
     return st_data, st_synth
+
+
+def shift_waveform(tr, dtshift):
+    """
+    tr_shift = shift_waveform(tr, dtshift):
+
+    Shift data in trace tr by dtshift seconds backwards.
+
+    Parameters
+    ----------
+    tr : obspy.Trace
+        Trace that contains the data to shift
+
+    dtshift : float
+        Time shift in seconds
+
+
+    Returns
+    -------
+    tr_shift : obspy.Trace
+        Copy of tr, but with data shifted dtshift seconds backwards.
+
+    """
+    freq = fft.fftfreq(tr.stats.npts, tr.stats.delta)
+    print(freq)
+    shiftvec = np.exp(- 2*np.pi * complex(0., 1.) * freq * dtshift)
+
+    tr_shift = tr.copy()
+    tr_shift.data = np.real(fft.ifft(fft.fft(tr_shift.data *
+                                             signal.tukey(tr_shift.stats.npts,
+                                                          alpha=0.1)) *
+                                     shiftvec))
+    return tr_shift
