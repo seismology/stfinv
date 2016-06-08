@@ -8,7 +8,8 @@ import scipy.fftpack as fft
 
 __all__ = ["seiscomp_to_moment_tensor",
            "get_synthetics",
-           "shift_waveform"]
+           "shift_waveform",
+           "calc_timeshift"]
 
 
 def seiscomp_to_moment_tensor(st_in, azimuth, scalmom=1.0):
@@ -126,10 +127,10 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
             channels = ['MXX', 'MYY', 'MZZ', 'MXY', 'MXZ', 'MYZ']
 
             for icomp in range(0, 6):
-                tr = obspy.Trace(data=data[icomp],
-                                 header=tr_work.stats)
-                tr.stats['channel'] = channels[icomp]
-                st_synth.append(tr)
+                tr_new = obspy.Trace(data=data[icomp],
+                                     header=tr_work.stats)
+                tr_new.stats['channel'] = channels[icomp]
+                st_synth.append(tr_new)
 
         else:
             print('%6s, %8.3f degree, out of range\n' %
@@ -160,7 +161,6 @@ def shift_waveform(tr, dtshift):
 
     """
     freq = fft.fftfreq(tr.stats.npts, tr.stats.delta)
-    print(freq)
     shiftvec = np.exp(- 2*np.pi * complex(0., 1.) * freq * dtshift)
 
     tr_shift = tr.copy()
@@ -169,3 +169,41 @@ def shift_waveform(tr, dtshift):
                                                           alpha=0.1)) *
                                      shiftvec))
     return tr_shift
+
+
+def calc_timeshift(st_a, st_b):
+    """
+    dt_all = calc_timeshift(st_a, st_b)
+
+    Calculate timeshift between two waveforms using the maximum of the
+    cross-correlation function.
+
+    Parameters
+    ----------
+    st_a : obspy.Stream
+        Stream that contains the reference traces
+
+    st_b : obspy.Stream
+        Stream that contains the traces to compare
+
+
+    Returns
+    -------
+    dt_all : dict
+        Dictionary with entries station.location and the estimated time shift
+        in seconds.
+
+    """
+    dt_all = dict()
+    for tr_a in st_a:
+        try:
+            tr_b = st_b.select(station=tr_a.stats.station,
+                               location=tr_a.stats.location)[0]
+            dt = (np.argmax(signal.correlate(tr_a.data, tr_b.data)) -
+                  tr_a.stats.npts + 1) * tr_a.stats.delta
+            print('%s.%s: %4.1f sec' %
+                  (tr_a.stats.station, tr_a.stats.location, dt))
+            dt_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dt
+        except IndexError:
+            print('Did not find %s' % (tr_a.stats.station))
+    return dt_all
