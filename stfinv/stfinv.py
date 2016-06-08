@@ -101,16 +101,9 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
             st_data.append(tr_work)
 
             # Get synthetics
-
-            # inst_rec = instaseis.Receiver(latitude=tr.stats.sac['stla'],
-            #                               longitude=tr.stats.sac['stlo'],
-            #                               network=tr.stats.network,
-            #                               location=tr.stats.location,
-            #                               station=tr.stats.station)
-
             gf_synth = db.get_greens_function(distance,
                                               source_depth_in_m=origin.depth,
-                                              dt=0.1)
+                                              dt=tr_work.stats.delta)
             for tr_synth in gf_synth:
                 tr_synth.stats['starttime'] = tr_synth.stats.starttime + \
                                               float(origin.time)
@@ -193,17 +186,23 @@ def calc_timeshift(st_a, st_b):
         Dictionary with entries station.location and the estimated time shift
         in seconds.
 
+    CC : dict
+        Dictionary with the correlation coefficients for each station.
+
     """
     dt_all = dict()
+    CC_all = dict()
     for tr_a in st_a:
         try:
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
-            dt = (np.argmax(signal.correlate(tr_a.data, tr_b.data)) -
-                  tr_a.stats.npts + 1) * tr_a.stats.delta
+            corr = signal.correlate(tr_a.data, tr_b.data)
+            dt = (np.argmax(abs(corr)) - tr_a.stats.npts + 1) * tr_a.stats.delta
+            CC = np.max(abs(corr))
             print('%s.%s: %4.1f sec' %
                   (tr_a.stats.station, tr_a.stats.location, dt))
             dt_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dt
+            CC_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = CC
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
-    return dt_all
+    return dt_all, CC_all
