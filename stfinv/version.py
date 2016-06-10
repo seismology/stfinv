@@ -66,4 +66,4 @@ VERSION = __version__
 PACKAGES = ['stfinv',
             'stfinv.tests']
 PACKAGE_DATA = {'stfinv': [pjoin('data', '*')]}
-REQUIRES = ["numpy", "obspy", "instaseis"]
+REQUIRES = ['numpy', 'obspy', 'instaseis']
