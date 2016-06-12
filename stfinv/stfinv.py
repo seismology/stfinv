@@ -14,6 +14,7 @@ __all__ = ["seiscomp_to_moment_tensor",
            "shift_waveform",
            "calc_timeshift",
            "calc_amplitude_misfit",
+           "calc_L2_misfit",
            "create_matrix_MT_inversion",
            "filter_bad_waveforms",
            "invert_MT",
@@ -51,13 +52,13 @@ def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
     """
 
     azimuth *= np.pi / 180.
-    m_tt = st_in.select(channel='ZSS')[0].data * np.cos(2*azimuth) / 2. + \
+    m_tt = st_in.select(channel='ZSS')[0].data * np.cos(2 * azimuth) / 2. + \
         st_in.select(channel='ZEP')[0].data / 3. -                     \
         st_in.select(channel='ZDD')[0].data / 6.
     m_tt *= scalmom
 
-    m_pp = - st_in.select(channel='ZSS')[0].data * np.cos(2*azimuth) / 2. +   \
-        st_in.select(channel='ZEP')[0].data / 3. -                         \
+    m_pp = - st_in.select(channel='ZSS')[0].data * np.cos(2 * azimuth) / 2. + \
+        st_in.select(channel='ZEP')[0].data / 3. -                            \
         st_in.select(channel='ZDD')[0].data / 6.
     m_pp *= scalmom
 
@@ -65,7 +66,7 @@ def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
         st_in.select(channel='ZDD')[0].data / 3.
     m_rr *= scalmom
 
-    m_tp = st_in.select(channel='ZSS')[0].data * np.sin(2*azimuth)
+    m_tp = st_in.select(channel='ZSS')[0].data * np.sin(2 * azimuth)
     m_tp *= scalmom
 
     m_rt = - st_in.select(channel='ZDS')[0].data * np.cos(azimuth)
@@ -94,7 +95,7 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
                    dist_min=30.0, dist_max=85.0, phase_list='P',
                    outdir_data='data', outdir_grf6='grf6'):
 
-    km2deg = 360.0 / (2*np.pi*6378137.0)
+    km2deg = 360.0 / (2 * np.pi * 6378137.0)
 
     model = TauPyModel(model="iasp91")
 
@@ -107,18 +108,17 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
         distance, azi, bazi = gps2dist_azimuth(tr.stats.sac['stla'],
                                                tr.stats.sac['stlo'],
                                                origin.latitude,
-                                               origin.longitude,
-                                               f=0.0)
+                                               origin.longitude)
         distance *= km2deg
 
         if dist_min < distance < dist_max:
             tt = model.get_travel_times(distance_in_degree=distance,
-                                        source_depth_in_km=origin.depth*1e-3,
+                                        source_depth_in_km=origin.depth * 1e-3,
                                         phase_list=phase_list)
             travel_time = origin.time + tt[0].time
 
-            print('%6s, %8.3f degree, %8.3f sec\n' % (tr.stats.station,
-                                                      distance, travel_time))
+            # print('%6s, %8.3f degree, %8.3f sec\n' % (tr.stats.station,
+            #                                           distance, travel_time))
 
             # Trim data around P arrival time
             tr_work.trim(starttime=travel_time - pre_offset,
@@ -132,7 +132,7 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
                                               dt=tr_work.stats.delta)
             for tr_synth in gf_synth:
                 tr_synth.stats['starttime'] = tr_synth.stats.starttime + \
-                                              float(origin.time)
+                    float(origin.time)
 
                 tr_synth.trim(starttime=travel_time - pre_offset,
                               endtime=travel_time + post_offset)
@@ -141,9 +141,9 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
             # component, which is used later in the inversion.
             # Convert to GRF6 format
             st_synth += seiscomp_to_moment_tensor(gf_synth,
-                                                 azimuth=azi,
-                                                 scalmom=1,
-                                                 stats=tr_work.stats)
+                                                  azimuth=azi,
+                                                  scalmom=1,
+                                                  stats=tr_work.stats)
 
         else:
             print('%6s, %8.3f degree, out of range\n' %
@@ -156,6 +156,9 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
     for tr in st_data:
         tr.write(os.path.join(outdir_grf6, 'data_%s.SAC' % tr.id),
                  format='SAC')
+
+    print('%d stations requested, %d were in range for phase %s' %
+          (len(stream), len(st_data), phase_list))
 
     return st_data, st_synth
 
@@ -184,7 +187,7 @@ def shift_waveform(tr, dtshift):
     tr_shift = tr.copy()
 
     freq = fft.fftfreq(tr.stats.npts, tr.stats.delta)
-    shiftvec = np.exp(- 2*np.pi * complex(0., 1.) * freq * dtshift)
+    shiftvec = np.exp(- 2 * np.pi * complex(0., 1.) * freq * dtshift)
     data_fd = shiftvec * fft.fft(tr_shift.data *
                                  signal.tukey(tr_shift.stats.npts,
                                               alpha=0.2))
@@ -266,7 +269,7 @@ def calc_amplitude_misfit(st_a, st_b):
         try:
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
-            dA = np.sum(tr_a.data*tr_b.data) / np.sum(tr_b.data**2)
+            dA = np.sum(tr_a.data * tr_b.data) / np.sum(tr_b.data ** 2)
 
             print('%s.%s: %4.2f ' %
                   (tr_a.stats.station, tr_a.stats.location, dA))
@@ -274,6 +277,22 @@ def calc_amplitude_misfit(st_a, st_b):
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
     return dA_all
+
+
+def calc_L2_misfit(st_a, st_b):
+    L2 = 0
+    for tr_a in st_a:
+        try:
+            tr_b = st_b.select(station=tr_a.stats.station,
+                               location=tr_a.stats.location)[0]
+            RMS = np.sum((tr_a.data - tr_b.data) ** 2)
+
+            # print('%s.%s: %e ' %
+            #       (tr_a.stats.station, tr_a.stats.location, RMS))
+            L2 += RMS
+        except IndexError:
+            print('Did not find %s' % (tr_a.stats.station))
+    return np.sqrt(L2)
 
 
 def create_matrix_MT_inversion(st_data, st_grf6):
@@ -305,18 +324,24 @@ def create_matrix_MT_inversion(st_data, st_grf6):
     # Create matrix for MT inversion:
     npts = st_grf6[0].stats.npts
 
+    nstat = len(st_data)
+
+    # Check number of traces in input streams
+    if (nstat * 6 != len(st_grf6)):
+        raise IndexError('len(st_grf6) has to be 6*len(st_data)')
+
     # Create data vector (all waveforms concatenated)
-    d = np.zeros((npts)*len(st_data))
-    for istat in range(0, len(st_data)):
-        d[istat*npts:(istat+1)*npts] = st_data[istat].data[0:npts]
+    d = np.zeros((npts) * nstat)
+    for istat in range(0, nstat):
+        d[istat * npts:(istat + 1) * npts] = st_data[istat].data[0:npts]
 
     # Create G-matrix
-    G = np.zeros((6, npts * len(st_grf6) / 6))
+    G = np.zeros((6, npts * nstat))
 
     channels = ['MTT', 'MPP', 'MRR', 'MTP', 'MRT', 'MRP']
     for icomp in range(0, 6):
-        for istat in range(0, len(st_grf6) / 6):
-            G[icomp][istat*npts:(istat+1)*npts] = \
+        for istat in range(0, nstat):
+            G[icomp][istat * npts:(istat + 1) * npts] = \
                 st_grf6.select(channel=channels[icomp])[istat].data[0:npts]
     return d, G
 

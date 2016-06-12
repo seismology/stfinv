@@ -27,7 +27,7 @@ def test_seiscomp_to_moment_tensor():
                                            f=0.0)
 
     # The following functions expect distance in degrees
-    km2deg = 360.0 / (2*np.pi*6378137.0)
+    km2deg = 360.0 / (2 * np.pi * 6378137.0)
     distance *= km2deg
 
     gf_synth = db.get_greens_function(epicentral_distance_in_degree=distance,
@@ -139,7 +139,7 @@ def test_calc_synthetic_from_grf6():
                                            f=0.0)
 
     # The following functions expect distance in degrees
-    km2deg = 360.0 / (2*np.pi*6378137.0)
+    km2deg = 360.0 / (2 * np.pi * 6378137.0)
     distance *= km2deg
 
     # Define Moment tensor
