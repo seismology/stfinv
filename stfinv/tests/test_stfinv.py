@@ -7,7 +7,7 @@ import stfinv
 
 
 def test_seiscomp_to_moment_tensor():
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
     db = instaseis.open_db('syngine://prem_a_20s')
 
@@ -48,10 +48,10 @@ def test_seiscomp_to_moment_tensor():
     m_tt = st_grf6.select(channel='MTT')[0].data * 1e20
     npt.assert_allclose(m_tt, m_tt_ref, atol=1e-6,
                         err_msg='M_tt not the same')
-    plt.plot(m_tt, label='GRF6')
-    plt.plot(m_tt_ref, label='REF')
-    plt.savefig('MTT.png')
-    plt.close()
+    # plt.plot(m_tt, label='GRF6')
+    # plt.plot(m_tt_ref, label='REF')
+    # plt.savefig('MTT.png')
+    # plt.close()
 
     # Myy/Mpp
     src_mpp = instaseis.Source(latitude=evlat, longitude=evlon,
@@ -61,10 +61,10 @@ def test_seiscomp_to_moment_tensor():
     m_pp = st_grf6.select(channel='MPP')[0].data * 1e20
     npt.assert_allclose(m_pp, m_pp_ref, atol=1e-6,
                         err_msg='M_pp not the same')
-    plt.plot(m_pp, label='GRF6')
-    plt.plot(m_pp_ref, label='REF')
-    plt.savefig('MPP.png')
-    plt.close()
+    # plt.plot(m_pp, label='GRF6')
+    # plt.plot(m_pp_ref, label='REF')
+    # plt.savefig('MPP.png')
+    # plt.close()
 
     # Mzz/Mrr
     src_mrr = instaseis.Source(latitude=evlat, longitude=evlon,
@@ -74,10 +74,10 @@ def test_seiscomp_to_moment_tensor():
     m_rr = st_grf6.select(channel='MRR')[0].data * 1e20
     npt.assert_allclose(m_rr, m_rr_ref, atol=1e-6,
                         err_msg='M_rr not the same')
-    plt.plot(m_rr, label='GRF6')
-    plt.plot(m_rr_ref, label='REF')
-    plt.savefig('MRR.png')
-    plt.close()
+    # plt.plot(m_rr, label='GRF6')
+    # plt.plot(m_rr_ref, label='REF')
+    # plt.savefig('MRR.png')
+    # plt.close()
 
     # Mxy/Mtp
     src_mtp = instaseis.Source(latitude=evlat, longitude=evlon,
@@ -87,10 +87,10 @@ def test_seiscomp_to_moment_tensor():
     m_tp = st_grf6.select(channel='MTP')[0].data * 1e20
     npt.assert_allclose(m_tp, m_tp_ref, atol=1e-6,
                         err_msg='M_tp not the same')
-    plt.plot(m_tp, label='GRF6')
-    plt.plot(m_tp_ref, label='REF')
-    plt.savefig('MTP.png')
-    plt.close()
+    # plt.plot(m_tp, label='GRF6')
+    # plt.plot(m_tp_ref, label='REF')
+    # plt.savefig('MTP.png')
+    # plt.close()
 
     # Mxz/Mtr
     src_mrt = instaseis.Source(latitude=evlat, longitude=evlon,
@@ -100,10 +100,10 @@ def test_seiscomp_to_moment_tensor():
     m_rt = st_grf6.select(channel='MRT')[0].data * 1e20
     npt.assert_allclose(m_rt, m_rt_ref, atol=1e-6,
                         err_msg='M_rt not the same')
-    plt.plot(m_rt, label='GRF6')
-    plt.plot(m_rt_ref, label='REF')
-    plt.savefig('MRT.png')
-    plt.close()
+    # plt.plot(m_rt, label='GRF6')
+    # plt.plot(m_rt_ref, label='REF')
+    # plt.savefig('MRT.png')
+    # plt.close()
 
     # Myz/Mpr
     src_mrp = instaseis.Source(latitude=evlat, longitude=evlon,
@@ -113,10 +113,10 @@ def test_seiscomp_to_moment_tensor():
     m_rp = st_grf6.select(channel='MRP')[0].data * 1e20
     npt.assert_allclose(m_rp, m_rp_ref, atol=1e-6,
                         err_msg='M_rp not the same')
-    plt.plot(m_rp, label='GRF6')
-    plt.plot(m_rp_ref, label='REF')
-    plt.savefig('MRP.png')
-    plt.close()
+    # plt.plot(m_rp, label='GRF6')
+    # plt.plot(m_rp_ref, label='REF')
+    # plt.savefig('MRP.png')
+    # plt.close()
 
 
 def test_calc_synthetic_from_grf6():
@@ -173,8 +173,8 @@ def test_calc_synthetic_from_grf6():
 
     st_synth = stfinv.calc_synthetic_from_grf6(st_grf6, st_ref, tensor)
 
-    st_synth.plot(outfile='synth.png')
-    st_ref.plot(outfile='ref.png')
+    # st_synth.plot(outfile='synth.png')
+    # st_ref.plot(outfile='ref.png')
 
     npt.assert_allclose(st_ref[0].data, st_synth[0].data,
                         atol=1e-6,
@@ -228,7 +228,7 @@ def test_calc_amplitude_misfit():
     st_test = obspy.Stream(traces=tr_test)
 
     # Multiply by 2.
-    tr_mult = obspy.Trace(np.array(data_test) * 2)
+    tr_mult = obspy.Trace(np.array(data_test) * 2.0)
     tr_mult.stats.delta = 0.1
     tr_mult.stats['station'] = 'REF'
     tr_mult.stats['location'] = '00'

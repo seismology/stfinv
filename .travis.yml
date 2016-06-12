@@ -32,19 +32,26 @@ before_install:
 # These are mostly requirements of instaseis
 - conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
 - travis_retry pip install $PIP_DEPS
-- git clone https://github.com/krischer/instaseis.git
-- cd ./instaseis
-- pip install -v -e .
-- cd ..
-# Instaseis should not be tested itself, therefore removing
-- rm -rf ./instaseis
+- pip install coveralls
+- pip install requests responses
 
 install:
+- pip list
+- git clone https://github.com/krischer/instaseis.git
+- cd ./instaseis
+- git status
+- pip list
+- pip install --no-deps -v -e .
+- pip list
+- cd ..
+# Instaseis should not be tested itself, therefore removing
+#- rm -rf ./instaseis
 - python setup.py install --record installed_files.txt
 
 script:
-- nosetests -v --with-coverage --cover-package=stfinv
-- flake8 --ignore N802,N806 `find . -name \*.py | grep -v setup.py | grep -v /doc/`
+- pip list
+- nosetests -v --with-coverage --cover-package=stfinv -I instaseis
+- flake8 --ignore N802,N806 `find stfinv/* -name \*.py | grep -v setup.py | grep -v /doc/`
 
 after_success:
 - coveralls
