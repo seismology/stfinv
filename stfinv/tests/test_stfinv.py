@@ -7,7 +7,7 @@ import stfinv
 
 
 def test_inversion():
-    data_path = 'stfinv/data/BH/*'
+    data_path = 'stfinv/data/dis*.BHZ'
     stfinv.inversion(data_path=data_path,
                      event_file='stfinv/data/virginia.xml',
                      db_path='syngine://ak135f_2s')
