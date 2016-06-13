@@ -2,6 +2,7 @@ import numpy as np
 import obspy
 import glob
 import os
+import instaseis
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
 from scipy import signal
@@ -9,7 +10,8 @@ import scipy.fftpack as fft
 import matplotlib.pyplot as plt
 
 
-__all__ = ["seiscomp_to_moment_tensor",
+__all__ = ["inversion",
+           "seiscomp_to_moment_tensor",
            "get_synthetics",
            "shift_waveform",
            "calc_timeshift",
@@ -21,8 +23,81 @@ __all__ = ["seiscomp_to_moment_tensor",
            "load_cut_files",
            "calc_synthetic_from_grf6",
            "plot_waveforms",
-           "correct_and_remove_bad_waveforms",
+           "correct_waveforms",
            "get_station_coordinates"]
+
+
+def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
+              depth=-1, dist_min=30.0, dist_max=100.0,
+              phase_list=('P', 'Pdiff'),
+              work_dir='testinversion'):
+
+    if not os.path.exists(work_dir):
+        os.mkdir(work_dir)
+
+    # Read all data
+    st = obspy.read(data_path)
+
+    # Fill stream with station coordinates (in SAC header)
+    get_station_coordinates(st)
+
+    # Read event file
+    cat = obspy.read_events(event_file)
+    event = cat[0]
+
+    db = instaseis.open_db(db_path)
+    st_data, st_synth_grf6 = get_synthetics(st,
+                                            event.origins[0],
+                                            db,
+                                            depth=depth,
+                                            out_dir=work_dir,
+                                            pre_offset=15,
+                                            post_offset=36.1,
+                                            dist_min=dist_min,
+                                            dist_max=dist_max,
+                                            phase_list=phase_list)
+
+    # Start values to ensure one iteration
+    it = 0
+    misfit_reduction = 1e8
+    L2_new = 1e8
+
+    # Initialize with MT from event file
+    tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
+
+    while misfit_reduction > 0.001:
+        # Get synthetics for current source solution
+        st_synth = calc_synthetic_from_grf6(st_synth_grf6,
+                                            st_data,
+                                            tensor)
+        st_data_work = st_data.copy()
+        st_data_work, st_synth_corr, \
+            st_synth_grf6_corr, CC, dt, dA = correct_waveforms(st_data_work,
+                                                               st_synth,
+                                                               st_synth_grf6)
+        nstat_used = len(st_data_work)
+
+        plot_waveforms(st_data_work, st_synth_corr, CC, CClim=0.5,
+                       outdir=os.path.join(work_dir, 'waveforms'),
+                       iteration=it)
+
+        # Calculate misfit reduction
+        L2_old = L2_new
+        L2_new = calc_L2_misfit(filter_bad_waveforms(st_data_work,
+                                                     CC, CClim=0.5),
+                                filter_bad_waveforms(st_synth_corr,
+                                                     CC, CClim=0.5))
+        misfit_reduction = (L2_old - L2_new) / L2_old
+
+        tensor = invert_MT(filter_bad_waveforms(st_data_work,
+                                                CC, CClim=0.5),
+                           filter_bad_waveforms(st_synth_grf6_corr,
+                                                CC, CClim=0.5),
+                           outdir=os.path.join(work_dir, 'focmec'))
+        it += 1
+
+        print('Misfit reduction: From %e to %e, (%f pct, %d stations)' %
+              (L2_old, L2_new, misfit_reduction * 1e2, nstat_used))
 
 
 def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
@@ -91,13 +166,29 @@ def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
     return st_grf6
 
 
-def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
-                   dist_min=30.0, dist_max=85.0, phase_list='P',
-                   outdir_data='data', outdir_grf6='grf6'):
+def get_synthetics(stream, origin, db, out_dir='inversion',
+                   depth=-1,
+                   pre_offset=5.6, post_offset=20.0,
+                   dist_min=30.0, dist_max=85.0, phase_list='P'):
+
+    # Use origin depth as default
+    if depth == -1:
+        depth = origin.depth
 
     km2deg = 360.0 / (2 * np.pi * 6378137.0)
 
     model = TauPyModel(model="iasp91")
+
+    # Check for existing Green's functions
+    data_dir = os.path.join(out_dir, 'data')
+    if not os.path.exists(data_dir):
+        os.mkdir(data_dir)
+    grf6_dir = os.path.join(out_dir, 'grf6')
+    if not os.path.exists(grf6_dir):
+        os.mkdir(grf6_dir)
+
+    st_data, st_synth_grf6 = load_cut_files(data_directory=data_dir,
+                                            grf6_directory=grf6_dir)
 
     st_data = obspy.Stream()
     st_synth = obspy.Stream()
@@ -109,11 +200,12 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
                                                tr.stats.sac['stlo'],
                                                origin.latitude,
                                                origin.longitude)
+
         distance *= km2deg
 
         if dist_min < distance < dist_max:
             tt = model.get_travel_times(distance_in_degree=distance,
-                                        source_depth_in_km=origin.depth * 1e-3,
+                                        source_depth_in_km=depth * 1e-3,
                                         phase_list=phase_list)
             travel_time = origin.time + tt[0].time
 
@@ -127,34 +219,45 @@ def get_synthetics(stream, origin, db, pre_offset=5.6, post_offset=20.0,
             st_data.append(tr_work)
 
             # Get synthetics
-            gf_synth = db.get_greens_function(distance,
-                                              source_depth_in_m=origin.depth,
-                                              dt=tr_work.stats.delta)
-            for tr_synth in gf_synth:
-                tr_synth.stats['starttime'] = tr_synth.stats.starttime + \
-                    float(origin.time)
+            # See what exists in the stream that we loaded earlier
+            gf6_synth = st_synth_grf6.select(station=tr.stats.station,
+                                             network=tr.stats.network,
+                                             location=tr.stats.location)
 
-                tr_synth.trim(starttime=travel_time - pre_offset,
-                              endtime=travel_time + post_offset)
+            if gf6_synth:
+                # len(gf6_synth == 6):
+                # Data already exists
+                st_synth += gf6_synth[0:6]
+            else:
+                # Data does not exist yet
+                gf_synth = db.get_greens_function(distance,
+                                                  source_depth_in_m=depth,
+                                                  dt=tr_work.stats.delta)
+                for tr_synth in gf_synth:
+                    tr_synth.stats['starttime'] = tr_synth.stats.starttime + \
+                        float(origin.time)
 
-            # Convert Green's functions from seiscomp format to one per MT
-            # component, which is used later in the inversion.
-            # Convert to GRF6 format
-            st_synth += seiscomp_to_moment_tensor(gf_synth,
-                                                  azimuth=azi,
-                                                  scalmom=1,
-                                                  stats=tr_work.stats)
+                    tr_synth.trim(starttime=travel_time - pre_offset,
+                                  endtime=travel_time + post_offset)
+
+                # Convert Green's functions from seiscomp format to one per MT
+                # component, which is used later in the inversion.
+                # Convert to GRF6 format
+                st_synth += seiscomp_to_moment_tensor(gf_synth,
+                                                      azimuth=azi,
+                                                      scalmom=1,
+                                                      stats=tr_work.stats)
 
         else:
             print('%6s, %8.3f degree, out of range\n' %
                   (tr.stats.station, distance))
 
     for tr in st_synth:
-        tr.write(os.path.join(outdir_data, 'synth_%s.SAC' % tr.id),
+        tr.write(os.path.join(grf6_dir, 'synth_%s.SAC' % tr.id),
                  format='SAC')
 
     for tr in st_data:
-        tr.write(os.path.join(outdir_grf6, 'data_%s.SAC' % tr.id),
+        tr.write(os.path.join(data_dir, 'data_%s.SAC' % tr.id),
                  format='SAC')
 
     print('%d stations requested, %d were in range for phase %s' %
@@ -232,8 +335,8 @@ def calc_timeshift(st_a, st_b):
             dt = (np.argmax(corr) - tr_a.stats.npts + 1) * tr_a.stats.delta
             CC = corr[np.argmax(corr)] / np.sqrt(np.sum(tr_a.data**2) *
                                                  np.sum(tr_b.data**2))
-            print('%s.%s: %4.1f sec, CC: %f' %
-                  (tr_a.stats.station, tr_a.stats.location, dt, CC))
+            # print('%s.%s: %4.1f sec, CC: %f' %
+            #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
             dt_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dt
             CC_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = CC
         except IndexError:
@@ -271,8 +374,8 @@ def calc_amplitude_misfit(st_a, st_b):
                                location=tr_a.stats.location)[0]
             dA = np.sum(tr_a.data * tr_b.data) / np.sum(tr_b.data ** 2)
 
-            print('%s.%s: %4.2f ' %
-                  (tr_a.stats.station, tr_a.stats.location, dA))
+            # print('%s.%s: %4.2f ' %
+            #      (tr_a.stats.station, tr_a.stats.location, dA))
             dA_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dA
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
@@ -292,7 +395,7 @@ def calc_L2_misfit(st_a, st_b):
             L2 += RMS
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
-    return np.sqrt(L2)
+    return np.sqrt(L2) / len(st_a)
 
 
 def create_matrix_MT_inversion(st_data, st_grf6):
@@ -356,7 +459,7 @@ def filter_bad_waveforms(stream, CC, CClim):
     return st_filtered
 
 
-def invert_MT(st_data, st_grf6, tens_orig, outdir='focmec'):
+def invert_MT(st_data, st_grf6, outdir='focmec'):
     """
     tens_new = invert_MT(st_data, st_grf6, dA, tens_orig):
 
@@ -372,8 +475,8 @@ def invert_MT(st_data, st_grf6, tens_orig, outdir='focmec'):
         Stream with 6xN synthetic Green's functions, which should be corrected
         for time shift and amplitude errors in the data.
 
-    tens_orig : obspy.core.event.Tensor
-        Previous moment tensor
+    outdir : String
+        Path in which to write Beachballs for each iteration
 
 
     Returns
@@ -383,6 +486,7 @@ def invert_MT(st_data, st_grf6, tens_orig, outdir='focmec'):
 
     """
 
+    # Remove bad waveforms
     d, G = create_matrix_MT_inversion(st_data, st_grf6)
 
     m, residual, rank, s = np.linalg.lstsq(G.T, d)
@@ -396,34 +500,32 @@ def invert_MT(st_data, st_grf6, tens_orig, outdir='focmec'):
                                        m_tp=m[3],
                                        m_rt=m[4],
                                        m_rp=m[5])
-    m_orig = [tens_orig.m_rr,
-              tens_orig.m_tt,
-              tens_orig.m_pp,
-              tens_orig.m_rt,
-              tens_orig.m_rp,
-              tens_orig.m_tp]
+    # m_orig = [tens_orig.m_rr,
+    #           tens_orig.m_tt,
+    #           tens_orig.m_pp,
+    #           tens_orig.m_rt,
+    #           tens_orig.m_rp,
+    #           tens_orig.m_tp]
 
-    m_est = [tens_new.m_rr,
-             tens_new.m_tt,
-             tens_new.m_pp,
-             tens_new.m_rt,
-             tens_new.m_rp,
-             tens_new.m_tp]
+    # m_est = [tens_new.m_rr,
+    #          tens_new.m_tt,
+    #          tens_new.m_pp,
+    #          tens_new.m_rt,
+    #          tens_new.m_rp,
+    #          tens_new.m_tp]
 
-    fig = plt.figure(figsize=(5, 10))
-    obspy.imaging.beachball.beachball(fm=m_orig, xy=(-100, 0),
-                                      fig=fig)
+    # fig = plt.figure(figsize=(5, 10))
 
-    obspy.imaging.beachball.beachball(fm=m_est, xy=(100, 0),
-                                      fig=fig)
-    fig.savefig(os.path.join(outdir, 'bb.png'))
+    # obspy.imaging.beachball.beachball(fm=m_est, xy=(100, 0),
+    #                                   fig=fig)
+    # fig.savefig(os.path.join(outdir, 'bb.png'), format='png')
     return tens_new
 
 
-def load_cut_files(directory):
+def load_cut_files(data_directory, grf6_directory):
     # This can correctly retrieve the channel names of the grf6 synthetics
     # Load grf6 synthetics
-    files_synth = glob.glob(os.path.join(directory, 'synth*'))
+    files_synth = glob.glob(os.path.join(grf6_directory, 'synth*'))
     files_synth.sort()
 
     st_synth_grf = obspy.Stream()
@@ -433,7 +535,7 @@ def load_cut_files(directory):
         st_synth_grf.append(tr)
 
     # Load data
-    files_data = glob.glob(os.path.join(directory, 'data*'))
+    files_data = glob.glob(os.path.join(data_directory, 'data*'))
     files_data.sort()
 
     st_data = obspy.Stream()
@@ -470,23 +572,59 @@ def calc_synthetic_from_grf6(st_synth_grf6, st_data, tensor):
     return st_synth
 
 
-def plot_waveforms(st_data, st_synth, outdir='./pic_corr/'):
+def plot_waveforms(st_data, st_synth, CC, CClim, iteration=-1,
+                   outdir='./waveforms/'):
 
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
+
+    fig = plt.figure(figsize=(15, 10))
+    ax = fig.add_subplot(111)
+    nplots = len(st_data)
+    nrows = int(np.sqrt(nplots)) + 1
+    iplot = 0
     for tr in st_data:
-        plt.plot(st_synth.select(station=tr.stats.station)[0].times(),
-                 st_synth.select(station=tr.stats.station)[0].data,
-                 label='Synthetic, corrected')
-        plt.plot(tr.times(),
-                 tr.data, label='data')
-        plt.legend()
-        plt.title('%s' % tr.stats.station)
-        outfile = os.path.join(outdir, '%s.png' % tr.stats.station)
-        plt.savefig(outfile)
-        plt.close()
+
+        irow = np.mod(iplot, nrows)
+        icol = np.int(iplot / nrows)
+
+        normfac = max(np.abs(tr.data))
+
+        yoffset = irow * 1.5
+        xoffset = icol * 1.2
+
+        xvals = np.linspace(0, 1, num=tr.stats.npts) + xoffset
+        code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        if CC[code] > CClim:
+            ls = '-'
+        else:
+            ls = '--'
+
+        yvals = st_synth.select(station=tr.stats.station)[0].data / normfac
+        l_s, = ax.plot(xvals,
+                       yvals + yoffset,
+                       color='r',
+                       linestyle=ls,
+                       linewidth=2)
+        l_d, = ax.plot(xvals,
+                       tr.data / normfac + yoffset,
+                       color='k',
+                       linestyle=ls,
+                       linewidth=1.5)
+        ax.text(xoffset + 0.05, yoffset + 0.4,
+                '%s' % tr.stats.station)
+
+        iplot += 1
+
+    ax.legend((l_s, l_d), ('Synthetic', 'data'))
+    if (iteration >= 0):
+        ax.set_title('Waveform fits, iteration %d' % iteration)
+    outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
+    fig.savefig(outfile, format='png')
+    plt.close(fig)
 
 
-def correct_and_remove_bad_waveforms(st_data, st_synth, st_synth_grf6,
-                                     CCmin=0.75):
+def correct_waveforms(st_data, st_synth, st_synth_grf6):
     # Create working copies of streams
     st_data_work = st_data.copy()
     st_synth_work = st_synth.copy()
@@ -496,9 +634,9 @@ def correct_and_remove_bad_waveforms(st_data, st_synth, st_synth_grf6,
     dt, CC = calc_timeshift(st_data_work, st_synth_work)
 
     # Remove bad waveforms
-    st_synth_work = filter_bad_waveforms(st_synth_work, CC, CCmin)
-    st_data_work = filter_bad_waveforms(st_data_work, CC, CCmin)
-    st_synth_grf6_work = filter_bad_waveforms(st_synth_grf6_work, CC, CCmin)
+    # st_synth_work = filter_bad_waveforms(st_synth_work, CC, CCmin)
+    # st_data_work = filter_bad_waveforms(st_data_work, CC, CCmin)
+    # st_synth_grf6_work = filter_bad_waveforms(st_synth_grf6_work, CC, CCmin)
 
     # Create new stream with time-shifted synthetic seismograms
     st_synth_shift = obspy.Stream()
