@@ -1,10 +1,10 @@
-import matplotlib
-matplotlib.use('Agg')
 import numpy as np
 import numpy.testing as npt
 import instaseis
 from obspy.geodetics import gps2dist_azimuth
 import obspy
+import matplotlib
+matplotlib.use('Agg')
 import stfinv
 
 
@@ -260,3 +260,56 @@ def test_get_station_coordinates():
                           channel=stats.channel)[0][0]
         npt.assert_equal(stat.longitude, stats.sac['stlo'])
         npt.assert_equal(stat.latitude, stats.sac['stla'])
+
+
+def test_create_Toeplitz():
+    print('even length')
+    d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0., 1])
+    d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0., 0])
+
+    G = stfinv.create_Toeplitz(d2)
+    npt.assert_allclose(np.matmul(G, d1),
+                        np.convolve(d1, d2, 'same'),
+                        atol=1e-7, rtol=1e-7)
+
+    print('odd length')
+    d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0.])
+    d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.])
+
+    G = stfinv.create_Toeplitz(d2)
+    npt.assert_allclose(np.matmul(G, d1),
+                        np.convolve(d1, d2, 'same'),
+                        atol=1e-7, rtol=1e-7)
+
+
+def test_create_Toeplitz_mult():
+    tr = obspy.Trace(data=np.array([0., 0., 0., 0., 1., 2., 1., 0., 0.]))
+    st = obspy.Stream(tr)
+    tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
+    st.append(tr)
+
+    d = np.array([0., 0., 1., 1., 2., 1., 1., 0., 0.])
+    G = stfinv.create_Toeplitz_mult(st)
+
+    ref = [np.convolve(st[0].data, d, 'same'),
+           np.convolve(st[1].data, d, 'same')]
+    res = np.matmul(G, d).reshape(2, 9)
+    npt.assert_allclose(ref, res, atol=1e-7, rtol=1e-7)
+
+
+def test_invert_STF():
+    tr = obspy.Trace(data=np.array([0., 0., 0., 0., 1., 2., 1., 0., 0.]))
+    st_synth = obspy.Stream(tr)
+    tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
+    st_synth.append(tr)
+
+    stf_ref = np.array([0., 0., 1., 1., -2., 1., 1., 0., 0.])
+
+    tr = obspy.Trace(data=np.convolve(st_synth[0].data, stf_ref, 'same'))
+    st_data = obspy.Stream(tr)
+    tr = obspy.Trace(data=np.convolve(st_synth[1].data, stf_ref, 'same'))
+    st_data.append(tr)
+
+    stf = stfinv.invert_STF(st_data, st_synth)
+
+    npt.assert_allclose(stf, stf_ref, rtol=1e-7, atol=1e-10)

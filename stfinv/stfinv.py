@@ -5,7 +5,7 @@ import os
 import instaseis
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
-from scipy import signal
+from scipy import signal, linalg
 import scipy.fftpack as fft
 import matplotlib.pyplot as plt
 
@@ -24,7 +24,11 @@ __all__ = ["inversion",
            "calc_synthetic_from_grf6",
            "plot_waveforms",
            "correct_waveforms",
-           "get_station_coordinates"]
+           "get_station_coordinates",
+           "create_Toeplitz",
+           "create_Toeplitz_mult",
+           "create_matrix_STF_inversion",
+           "invert_STF"]
 
 
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
@@ -697,3 +701,56 @@ def get_station_coordinates(stream, client_base_url='IRIS'):
                           channel=stats.channel)
         stats.sac = dict(stla=stat[0][0].latitude,
                          stlo=stat[0][0].longitude)
+
+
+def create_Toeplitz(data):
+    npts = len(data)
+    padding = np.zeros((npts) / 2 + 1)
+
+    if np.mod(npts, 2) == 0:
+        # even number of elements
+        start = (npts) / 2 - 1
+        first_col = np.r_[data[start:-1], padding[0:-1]]
+    else:
+        # odd number of elements
+        start = (npts) / 2
+        first_col = np.r_[data[start:-1], padding]
+
+    first_row = np.r_[data[start:0:-1], padding]
+    return linalg.toeplitz(first_col, first_row)
+
+
+def create_Toeplitz_mult(stream):
+    nstat = len(stream)
+    npts = stream[0].stats.npts
+    G = np.zeros((nstat * npts, npts))
+
+    for istat in range(0, nstat):
+        G[istat * npts:(istat + 1) * npts][:] = \
+            create_Toeplitz(stream[istat].data)
+    return G
+
+
+def create_matrix_STF_inversion(st_data, st_synth):
+    # Create matrix for STF inversion:
+    npts = st_synth[0].stats.npts
+    nstat = len(st_data)
+
+    # Check number of traces in input streams
+    if (nstat != len(st_synth)):
+        raise IndexError('len(st_synth) has to be len(st_data)')
+
+    # Create data vector (all waveforms concatenated)
+    d = np.zeros(npts * nstat)
+    for istat in range(0, nstat):
+        d[istat * npts:(istat + 1) * npts] = st_data[istat].data[0:npts]
+
+    # Create G-matrix
+    G = create_Toeplitz_mult(st_synth)
+    return d, G
+
+
+def invert_STF(st_data, st_synth):
+    d, G = create_matrix_STF_inversion(st_data, st_synth)
+    m, residual, rank, s = np.linalg.lstsq(G, d)
+    return m
