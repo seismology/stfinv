@@ -28,7 +28,8 @@ __all__ = ["inversion",
            "create_Toeplitz",
            "create_Toeplitz_mult",
            "create_matrix_STF_inversion",
-           "invert_STF"]
+           "invert_STF",
+           "pick"]
 
 
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
@@ -754,3 +755,33 @@ def invert_STF(st_data, st_synth):
     d, G = create_matrix_STF_inversion(st_data, st_synth)
     m, residual, rank, s = np.linalg.lstsq(G, d)
     return m
+
+
+def pick(signal, threshold):
+    """
+    i = pick(signal, threshold)
+
+    Return first index of signal, which crosses threshold from below.
+    Note that the first crossing is returned, so if signal[0] is above threshold,
+    this does not count.
+
+    Parameters
+    ----------
+    signal : np.array
+        Array with signal.
+
+    threshold : float
+        Threshold
+
+
+    Returns
+    -------
+    i : int
+        Index of first surpassing of threshold
+
+    """
+    thresholded_data = signal > threshold
+    threshold_edges = np.convolve([1, -1], thresholded_data, mode='same')
+    threshold_edges[0] = 0
+
+    return np.where(threshold_edges==1)[0][0]

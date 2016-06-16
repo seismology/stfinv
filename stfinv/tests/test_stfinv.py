@@ -313,3 +313,19 @@ def test_invert_STF():
     stf = stfinv.invert_STF(st_data, st_synth)
 
     npt.assert_allclose(stf, stf_ref, rtol=1e-7, atol=1e-10)
+
+
+def test_pick():
+
+    signal = np.array([3, 3, 4, 4, 4, 3, 2, 1, 0, 3, 2, \
+                       1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
+    threshold=3
+    idx = stfinv.pick(signal, threshold)
+    npt.assert_equal(idx, 2, err_msg='Pick first surpassing of threshold')
+
+    signal = np.array([4, 4, 4, 4, 4, 3, 2, 1, 0, 3, 2, \
+                       1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
+    threshold=3
+    idx = stfinv.pick(signal, threshold)
+    npt.assert_equal(idx, 16, err_msg='Pick first surpassing of threshold')
+
