@@ -29,7 +29,8 @@ __all__ = ["inversion",
            "create_Toeplitz_mult",
            "create_matrix_STF_inversion",
            "invert_STF",
-           "pick"]
+           "pick",
+           "taper_signal"]
 
 
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
@@ -762,8 +763,8 @@ def pick(signal, threshold):
     i = pick(signal, threshold)
 
     Return first index of signal, which crosses threshold from below.
-    Note that the first crossing is returned, so if signal[0] is above threshold,
-    this does not count.
+    Note that the first crossing is returned, so if signal[0] is above
+    threshold, this does not count.
 
     Parameters
     ----------
@@ -784,4 +785,61 @@ def pick(signal, threshold):
     threshold_edges = np.convolve([1, -1], thresholded_data, mode='same')
     threshold_edges[0] = 0
 
-    return np.where(threshold_edges==1)[0][0]
+    return np.where(threshold_edges == 1)[0][0]
+
+
+def taper_signal(trace, t_begin, t_end):
+    """
+    taper_signal(trace, t_begin, t_end)
+
+    Taper data array in trace with an asymmetric Hanning window. The range
+    between t_begin and t_end is left unchanged. The two seconds before t_begin
+    are tapered with the rising half of a Hanning window. The (t_end-t_begin)
+    seconds after t_end are tapered with the decaying half of a Hanning window.
+
+
+    Parameters
+    ----------
+    trace : obspy.Trace
+        ObsPy trace object with signal.
+
+    t_begin : Begin of signal window
+
+    t_end : End of signal window
+
+
+    Returns
+    -------
+    None
+        Note that the data array in the trace is modified in place.
+
+    """
+    window = np.zeros_like(trace.data)
+
+    i_begin = abs(trace.times() - (t_begin - 2.0)).argmin()
+    i_end = abs(trace.times() - t_end).argmin()
+
+    winlen_begin = int(2.0 / trace.stats.delta)
+    winlen_end = int((t_end - t_begin) / trace.stats.delta)
+
+    # Signal part from zero to 2s before t_begin is muted
+    window[0:i_begin] = 0.0
+
+    # Signal part two seconds before t_begin is tapered with Hanning function
+    window[i_begin:i_begin + winlen_begin] = \
+        np.hanning(winlen_begin * 2)[0:winlen_begin]
+
+    # Signal part between t_begin and t_end is left unchanged.
+    window[i_begin + winlen_begin:i_end] = 1
+
+    # Signal part after t_end is tapered with Hanning function with width
+    # (t_end-t_begin).
+    if i_end + winlen_end < len(window):
+        window[i_end:i_end + winlen_end] = \
+            np.hanning(winlen_end * 2)[winlen_end:]
+    else:
+        remainder = len(window) - i_end
+        window[i_end:] = \
+            np.hanning(winlen_end * 2)[winlen_end:winlen_end + remainder]
+
+    trace.data *= window
