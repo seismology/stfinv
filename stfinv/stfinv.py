@@ -11,6 +11,9 @@ import scipy.fftpack as fft
 from scipy.optimize import lsq_linear
 import matplotlib.pyplot as plt
 import argparse
+from .utils.results import Results
+from .utils.depth import Depth
+from .utils.iteration import Iteration
 
 
 __all__ = ["inversion",
@@ -111,6 +114,8 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
                                 (1. / 0.2)))
 
+    res = Depth()
+
     while misfit_reduction > -0.1:
         # Get synthetics for current source solution
         st_synth = calc_synthetic_from_grf6(st_synth_grf6,
@@ -137,6 +142,9 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         misfit_old = misfit_new
         misfit_new = calc_D_misfit(CC)
         misfit_reduction = (misfit_old - misfit_new) / misfit_old
+
+        res_it = Iteration(tensor, stf, CC, dA, dT, it, depth_in_m, misfit_new)
+        res.append(res_it)
 
         print('  it: %02d, misfit: %5.3f (%8.1f pct red. %d stations)' %
               (it, misfit_new, misfit_reduction * 1e2, nstat_used))
@@ -178,6 +186,8 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                            stf=stf,
                            outdir=os.path.join(work_dir, 'focmec'))
         it += 1
+
+    return res
 
 
 def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
@@ -1133,12 +1143,18 @@ def main():
     args = parser.parse_args()
 
     # Run the main program
+    result = Results()
     for depth in np.arange(args.depth_min * 1e3,
                            args.depth_max * 1e3,
                            step=args.depth_step * 1e3, dtype=float):
-        inversion(args.data_path, args.event_file, db_path=args.db_path,
-                  depth_in_m=depth, dist_min=30.0, dist_max=100.0, CClim=0.6,
-                  phase_list=('P', 'Pdiff'),
-                  pre_offset=15,
-                  post_offset=36.1,
-                  work_dir='.')
+        result.append(inversion(args.data_path, args.event_file,
+                                db_path=args.db_path,
+                                depth_in_m=depth,
+                                dist_min=30.0, dist_max=100.0, CClim=0.6,
+                                phase_list=('P', 'Pdiff'),
+                                pre_offset=15,
+                                post_offset=36.1,
+                                work_dir='.'))
+    best_depth = result.get_best_depth()
+    print(best_depth.get_best_solution())
+    print(best_depth.get_best_solution().misfit)

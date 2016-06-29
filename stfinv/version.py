@@ -64,6 +64,7 @@ MINOR = _version_minor
 MICRO = _version_micro
 VERSION = __version__
 PACKAGES = ['stfinv',
-            'stfinv.tests']
+            'stfinv.tests',
+            'stfinv.utils']
 PACKAGE_DATA = {'stfinv': [pjoin('data', '*')]}
 REQUIRES = ['numpy', 'obspy', 'instaseis']
