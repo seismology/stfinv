@@ -1,20 +1,28 @@
 import numpy as np
 import numpy.testing as npt
-import instaseis
-from obspy.geodetics import gps2dist_azimuth
+from matplotlib import use
+use('Agg')
+import matplotlib.pyplot as plt
 import obspy
-import matplotlib
-matplotlib.use('Agg')
+import instaseis
+import os
 import stfinv
+from obspy.geodetics import gps2dist_azimuth
 
 
 # def test_inversion():
-#     data_path = 'stfinv/data/dis*.BHZ'
-#     stfinv.inversion(data_path=data_path,
-#                      event_file='stfinv/data/virginia.xml',
-#                      db_path='syngine://ak135f_2s')
-#
-#
+#     data_path = './stfinv/data/dis*.BHZ'
+#     db_path='syngine://ak135f_2s'
+#     # db_path = '/import/tethys-2g-nas-dump/instaseis/PREMiso_2s/'
+#     for depth in range(5, 15):
+#         stfinv.inversion(data_path=data_path,
+#                          event_file='./stfinv/data/virginia.xml',
+#                          #pre_offset=30,
+#                          #post_offset=72.3,
+#                          db_path=db_path,
+#                          depth_in_m=depth * 1e3)
+
+
 def test_seiscomp_to_moment_tensor():
     # import matplotlib.pyplot as plt
 
@@ -180,7 +188,10 @@ def test_calc_synthetic_from_grf6():
                                                scalmom=1,
                                                stats=st_ref[0].stats)
 
-    st_synth = stfinv.calc_synthetic_from_grf6(st_grf6, st_ref, tensor)
+    st_synth = stfinv.calc_synthetic_from_grf6(st_grf6,
+                                               st_ref,
+                                               tensor=tensor,
+                                               stf=[1])
 
     # st_synth.plot(outfile='synth.png')
     # st_ref.plot(outfile='ref.png')
@@ -263,7 +274,7 @@ def test_get_station_coordinates():
 
 
 def test_create_Toeplitz():
-    print('even length')
+    # even length
     d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0., 1])
     d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0., 0])
 
@@ -272,7 +283,7 @@ def test_create_Toeplitz():
                         np.convolve(d1, d2, 'same'),
                         atol=1e-7, rtol=1e-7)
 
-    print('odd length')
+    # odd length
     d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0.])
     d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.])
 
@@ -303,7 +314,7 @@ def test_invert_STF():
     tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
     st_synth.append(tr)
 
-    stf_ref = np.array([0., 0., 1., 1., -2., 1., 1., 0., 0.])
+    stf_ref = np.array([0., 0., 1., 1., 0., 1., 1., 0., 0.])
 
     tr = obspy.Trace(data=np.convolve(st_synth[0].data, stf_ref, 'same'))
     st_data = obspy.Stream(tr)
@@ -312,6 +323,9 @@ def test_invert_STF():
 
     stf = stfinv.invert_STF(st_data, st_synth)
 
+    halflen = (len(stf) + 1) / 2
+    stf = np.r_[stf[halflen:], stf[0:halflen]]
+
     npt.assert_allclose(stf, stf_ref, rtol=1e-7, atol=1e-10)
 
 
@@ -319,15 +333,31 @@ def test_pick():
 
     signal = np.array([3, 3, 4, 4, 4, 3, 2, 1, 0, 3, 2,
                        1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
-    threshold = 3
-    idx = stfinv.pick(signal, threshold)
+    tr = obspy.Trace(data=signal)
+    threshold = 3.0
+    idx = stfinv.pick(tr, threshold)
     npt.assert_equal(idx, 2, err_msg='Pick first surpassing of threshold')
 
     signal = np.array([4, 4, 4, 4, 4, 3, 2, 1, 0, 3, 2,
                        1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
-    threshold = 3
-    idx = stfinv.pick(signal, threshold)
+    tr = obspy.Trace(data=signal)
+    threshold = 3.0
+    idx = stfinv.pick(tr, threshold)
     npt.assert_equal(idx, 16, err_msg='Pick first surpassing of threshold')
+
+    signal = - np.array([4, 4, 4, 4, 4, 3, 2, 1, 0, 3, 2,
+                         1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
+    tr = obspy.Trace(data=signal)
+    threshold = 3.0
+    idx = stfinv.pick(tr, threshold)
+    npt.assert_equal(idx, 16, err_msg='Negative signals')
+
+    signal = np.array([4, 4, 4, 4, 4, 3, 2, 1, 0, 3, 2,
+                       1, 0, 0, 1, 1, 4, 8, 7, 6, 5, 0])
+    tr = obspy.Trace(data=signal)
+    threshold = 9.0
+    idx = stfinv.pick(tr, threshold)
+    npt.assert_equal(idx, 0.0, err_msg='Pick zero, if all below threshold')
 
 
 def test_taper_signal():
@@ -372,3 +402,26 @@ def test_taper_signal():
 
     npt.assert_allclose(tr_ref.data, result_ref, atol=1e-10,
                         err_msg='Tapering equal to reference')
+
+
+def test_taper_before_arrival():
+
+    testdata_dir = './scripts/testinversion/data/'
+    st_data = obspy.read(os.path.join(testdata_dir,
+                                      'data_II.BFO.00.BHZ.SAC'))
+    st_synth = obspy.read(os.path.join(testdata_dir,
+                                       'data_II.BFO.00.MPP.SAC'))
+
+    code = '%s.%s' % (st_data[0].stats.station,
+                      st_data[0].stats.location)
+
+    plt.plot(st_data[0].times(), st_data[0].data, label='untapered')
+    len_win, arr_times = stfinv.taper_before_arrival(st_data,
+                                                     st_synth)
+
+    plt.plot(st_data[0].times(), st_data[0].data, label='tapered')
+    plt.plot(st_synth[0].times(), st_synth[0].data * 1e18,
+             label='synth')
+    plt.plot(arr_times[code] * np.ones(2), (-1e-6, 1e-6))
+    plt.legend()
+    plt.savefig('taper_before_arrival.png')

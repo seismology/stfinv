@@ -5,9 +5,12 @@ import os
 import instaseis
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
+from obspy.imaging.beachball import beach
 from scipy import signal, linalg
 import scipy.fftpack as fft
+from scipy.optimize import lsq_linear
 import matplotlib.pyplot as plt
+import argparse
 
 
 __all__ = ["inversion",
@@ -30,19 +33,29 @@ __all__ = ["inversion",
            "create_matrix_STF_inversion",
            "invert_STF",
            "pick",
-           "taper_signal"]
+           "taper_signal",
+           "taper_before_arrival"]
 
 
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
-              depth=-1, dist_min=30.0, dist_max=100.0,
+              depth_in_m=-1, dist_min=30.0, dist_max=100.0, CClim=0.6,
               phase_list=('P', 'Pdiff'),
+              pre_offset=15,
+              post_offset=36.1,
               work_dir='testinversion'):
+    from obspy.signal.interpolation import lanczos_interpolation
 
     if not os.path.exists(work_dir):
         os.mkdir(work_dir)
 
+    # Instaseis does not like sources at 0.0 km
+    if depth_in_m == 0.0:
+        depth_in_m += 0.01
+
+    print('Inverting for depth %5.2fkm' % (depth_in_m * 1e-3))
+
     # Read all data
-    st = obspy.read(data_path)
+    st = obspy.read(os.path.join(data_path, '*'))
 
     # Fill stream with station coordinates (in SAC header)
     get_station_coordinates(st)
@@ -52,58 +65,111 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     event = cat[0]
 
     db = instaseis.open_db(db_path)
+
+    # Calculate synthetics in GRF6 format with instaseis and cut
+    # time windows around the phase arrivals (out of data and GRF6 synthetics.
+    # The cuts are saved on disk for the next time.
     st_data, st_synth_grf6 = get_synthetics(st,
                                             event.origins[0],
                                             db,
-                                            depth=depth,
+                                            depth_in_m=depth_in_m,
                                             out_dir=work_dir,
-                                            pre_offset=15,
-                                            post_offset=36.1,
+                                            pre_offset=pre_offset,
+                                            post_offset=post_offset,
                                             dist_min=dist_min,
                                             dist_max=dist_max,
                                             phase_list=phase_list)
 
+    # Convolve st_data with Instaseis stf to remove its effect.
+    sliprate = lanczos_interpolation(db.info.slip, old_start=0,
+                                     old_dt=db.info.dt, new_dt=0.1,
+                                     new_start=0,
+                                     new_npts=st_data[0].stats.npts,
+                                     a=8)
+    for tr in st_data:
+        tr.data = np.convolve(tr.data, sliprate)[0:tr.stats.npts]
+
     # Start values to ensure one iteration
     it = 0
     misfit_reduction = 1e8
-    L2_new = 1e8
+    misfit_new = 2
 
     # Initialize with MT from event file
     tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
 
-    while misfit_reduction > 0.001:
+    # Init with spike STF
+    stf = np.zeros(128)
+    stf[1] = 1.
+
+    # Define butterworth filter at database corner frequency
+    b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
+                                (1. / 0.2)))
+
+    while misfit_reduction > -0.1:
         # Get synthetics for current source solution
         st_synth = calc_synthetic_from_grf6(st_synth_grf6,
                                             st_data,
-                                            tensor)
+                                            stf=stf,
+                                            tensor=tensor)
         st_data_work = st_data.copy()
         st_data_work, st_synth_corr, \
-            st_synth_grf6_corr, CC, dt, dA = correct_waveforms(st_data_work,
+            st_synth_grf6_corr, CC, dT, dA = correct_waveforms(st_data_work,
                                                                st_synth,
                                                                st_synth_grf6)
-        nstat_used = len(st_data_work)
 
-        plot_waveforms(st_data_work, st_synth_corr, CC, CClim=0.5,
-                       outdir=os.path.join(work_dir, 'waveforms'),
-                       iteration=it)
+        len_win, arr_times = taper_before_arrival(st_data_work,
+                                                  st_synth_corr)
+        len_win, arr_times = taper_before_arrival(st_synth_grf6_corr,
+                                                  st_synth_corr)
+
+        nstat_used = len(filter_bad_waveforms(st_data_work,
+                                              CC, CClim))
 
         # Calculate misfit reduction
-        L2_old = L2_new
-        L2_new = calc_L2_misfit(filter_bad_waveforms(st_data_work,
-                                                     CC, CClim=0.5),
-                                filter_bad_waveforms(st_synth_corr,
-                                                     CC, CClim=0.5))
-        misfit_reduction = (L2_old - L2_new) / L2_old
+        misfit_old = misfit_new
+        misfit_new = calc_D_misfit(CC)
+        misfit_reduction = (misfit_old - misfit_new) / misfit_old
+
+        print('  it: %02d, misfit: %5.3f (%8.1f pct red. %d stations)' %
+              (it, misfit_new, misfit_reduction * 1e2, nstat_used))
+
+        plot_waveforms(st_data_work, st_synth_corr,
+                       arr_times, CC, CClim, dA, dT,
+                       outdir=os.path.join(work_dir,
+                                           'waveforms_%06dkm' % depth_in_m),
+                       misfit=misfit_new,
+                       iteration=it, stf=stf, tensor=tensor)
+
+        # Stop the inversion, if no station can be used
+        if (nstat_used == 0):
+            break
+
+        # Omit the STF inversion in the first round.
+        if it > 0:
+            st_data_stf = filter_bad_waveforms(st_data_work,
+                                               CC, CClim).copy()
+
+            # Do the STF inversion on downsampled data to avoid high frequency
+            # noise that has to be removed later
+            st_data_stf.decimate(factor=5)
+            st_synth_stf = filter_bad_waveforms(st_synth_corr,
+                                                CC, CClim).copy()
+            st_synth_stf.decimate(factor=5)
+            stf = invert_STF(st_data_stf, st_synth_stf)
+
+            stf = lanczos_interpolation(stf,
+                                        old_start=0, old_dt=0.5,
+                                        new_start=0, new_dt=0.1,
+                                        new_npts=128,
+                                        a=8)
 
         tensor = invert_MT(filter_bad_waveforms(st_data_work,
-                                                CC, CClim=0.5),
+                                                CC, CClim),
                            filter_bad_waveforms(st_synth_grf6_corr,
-                                                CC, CClim=0.5),
+                                                CC, CClim),
+                           stf=stf,
                            outdir=os.path.join(work_dir, 'focmec'))
         it += 1
-
-        print('Misfit reduction: From %e to %e, (%f pct, %d stations)' %
-              (L2_old, L2_new, misfit_reduction * 1e2, nstat_used))
 
 
 def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
@@ -173,13 +239,13 @@ def seiscomp_to_moment_tensor(st_in, azimuth, stats=None, scalmom=1.0):
 
 
 def get_synthetics(stream, origin, db, out_dir='inversion',
-                   depth=-1,
+                   depth_in_m=-1,
                    pre_offset=5.6, post_offset=20.0,
                    dist_min=30.0, dist_max=85.0, phase_list='P'):
 
     # Use origin depth as default
-    if depth == -1:
-        depth = origin.depth
+    if depth_in_m == -1:
+        depth_in_m = origin.depth
 
     km2deg = 360.0 / (2 * np.pi * 6378137.0)
 
@@ -194,7 +260,8 @@ def get_synthetics(stream, origin, db, out_dir='inversion',
         os.mkdir(grf6_dir)
 
     st_data, st_synth_grf6 = load_cut_files(data_directory=data_dir,
-                                            grf6_directory=grf6_dir)
+                                            grf6_directory=grf6_dir,
+                                            depth_in_m=depth_in_m)
 
     st_data = obspy.Stream()
     st_synth = obspy.Stream()
@@ -210,17 +277,27 @@ def get_synthetics(stream, origin, db, out_dir='inversion',
         distance *= km2deg
 
         if dist_min < distance < dist_max:
+
+            # Calculate travel times for the data
+            # Here we use the origin depth.
             tt = model.get_travel_times(distance_in_degree=distance,
-                                        source_depth_in_km=depth * 1e-3,
+                                        source_depth_in_km=origin.depth * 1e-3,
                                         phase_list=phase_list)
-            travel_time = origin.time + tt[0].time
+            travel_time_data = origin.time + tt[0].time
+
+            # Calculate travel times for the synthetics
+            # Here we use the inversion depth.
+            tt = model.get_travel_times(distance_in_degree=distance,
+                                        source_depth_in_km=depth_in_m * 1e-3,
+                                        phase_list=phase_list)
+            travel_time_synth = origin.time + tt[0].time
 
             # print('%6s, %8.3f degree, %8.3f sec\n' % (tr.stats.station,
             #                                           distance, travel_time))
 
             # Trim data around P arrival time
-            tr_work.trim(starttime=travel_time - pre_offset,
-                         endtime=travel_time + post_offset)
+            tr_work.trim(starttime=travel_time_data - pre_offset,
+                         endtime=travel_time_data + post_offset)
 
             st_data.append(tr_work)
 
@@ -237,14 +314,14 @@ def get_synthetics(stream, origin, db, out_dir='inversion',
             else:
                 # Data does not exist yet
                 gf_synth = db.get_greens_function(distance,
-                                                  source_depth_in_m=depth,
+                                                  source_depth_in_m=depth_in_m,
                                                   dt=tr_work.stats.delta)
                 for tr_synth in gf_synth:
                     tr_synth.stats['starttime'] = tr_synth.stats.starttime + \
                         float(origin.time)
 
-                    tr_synth.trim(starttime=travel_time - pre_offset,
-                                  endtime=travel_time + post_offset)
+                    tr_synth.trim(starttime=travel_time_synth - pre_offset,
+                                  endtime=travel_time_synth + post_offset)
 
                 # Convert Green's functions from seiscomp format to one per MT
                 # component, which is used later in the inversion.
@@ -254,12 +331,13 @@ def get_synthetics(stream, origin, db, out_dir='inversion',
                                                       scalmom=1,
                                                       stats=tr_work.stats)
 
-        else:
-            print('%6s, %8.3f degree, out of range\n' %
-                  (tr.stats.station, distance))
+        # else:
+        #     print('%6s, %8.3f degree, out of range\n' %
+        #           (tr.stats.station, distance))
 
     for tr in st_synth:
-        tr.write(os.path.join(grf6_dir, 'synth_%s.SAC' % tr.id),
+        tr.write(os.path.join(grf6_dir, 'synth_%06dkm_%s.SAC' %
+                              (depth_in_m, tr.id)),
                  format='SAC')
 
     for tr in st_data:
@@ -295,13 +373,15 @@ def shift_waveform(tr, dtshift):
     """
     tr_shift = tr.copy()
 
-    freq = fft.fftfreq(tr.stats.npts, tr.stats.delta)
+    data_pad = np.r_[tr_shift.data, np.zeros_like(tr_shift.data)]
+
+    freq = fft.fftfreq(len(data_pad), tr.stats.delta)
     shiftvec = np.exp(- 2 * np.pi * complex(0., 1.) * freq * dtshift)
-    data_fd = shiftvec * fft.fft(tr_shift.data *
-                                 signal.tukey(tr_shift.stats.npts,
+    data_fd = shiftvec * fft.fft(data_pad *
+                                 signal.tukey(len(data_pad),
                                               alpha=0.2))
 
-    tr_shift.data = np.real(fft.ifft(data_fd))
+    tr_shift.data = np.real(fft.ifft(data_fd))[0:tr_shift.stats.npts]
     return tr_shift
 
 
@@ -378,14 +458,20 @@ def calc_amplitude_misfit(st_a, st_b):
         try:
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
-            dA = np.sum(tr_a.data * tr_b.data) / np.sum(tr_b.data ** 2)
+            dA = abs(np.sum(tr_a.data * tr_b.data)) / np.sum(tr_b.data ** 2)
 
-            # print('%s.%s: %4.2f ' %
-            #      (tr_a.stats.station, tr_a.stats.location, dA))
             dA_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dA
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
     return dA_all
+
+
+def calc_D_misfit(CCs):
+    CC = []
+    for key, value in CCs.items():
+        CC.append(1. - value)
+
+    return np.mean(CC)
 
 
 def calc_L2_misfit(st_a, st_b):
@@ -460,12 +546,16 @@ def filter_bad_waveforms(stream, CC, CClim):
     st_filtered = obspy.Stream()
     for tr in stream:
         code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        # print('%s, %f' % (code, CC[code]))
         if CC[code] > CClim:
+            # print('in')
             st_filtered.append(tr)
+        # else:
+        #    print('out')
     return st_filtered
 
 
-def invert_MT(st_data, st_grf6, outdir='focmec'):
+def invert_MT(st_data, st_grf6, stf=[1], outdir='focmec'):
     """
     tens_new = invert_MT(st_data, st_grf6, dA, tens_orig):
 
@@ -481,6 +571,10 @@ def invert_MT(st_data, st_grf6, outdir='focmec'):
         Stream with 6xN synthetic Green's functions, which should be corrected
         for time shift and amplitude errors in the data.
 
+    stf : np.array
+        Normalized source time function (slip rate function) with the
+        same sampling rate as the streams.
+
     outdir : String
         Path in which to write Beachballs for each iteration
 
@@ -492,8 +586,14 @@ def invert_MT(st_data, st_grf6, outdir='focmec'):
 
     """
 
-    # Remove bad waveforms
-    d, G = create_matrix_MT_inversion(st_data, st_grf6)
+    # Create working copy
+    st_grf6_work = st_grf6.copy()
+
+    # Convolve with STF
+    for tr in st_grf6_work:
+        tr.data = np.convolve(tr.data, stf, mode='same')
+
+    d, G = create_matrix_MT_inversion(st_data, st_grf6_work)
 
     m, residual, rank, s = np.linalg.lstsq(G.T, d)
 
@@ -506,32 +606,14 @@ def invert_MT(st_data, st_grf6, outdir='focmec'):
                                        m_tp=m[3],
                                        m_rt=m[4],
                                        m_rp=m[5])
-    # m_orig = [tens_orig.m_rr,
-    #           tens_orig.m_tt,
-    #           tens_orig.m_pp,
-    #           tens_orig.m_rt,
-    #           tens_orig.m_rp,
-    #           tens_orig.m_tp]
-
-    # m_est = [tens_new.m_rr,
-    #          tens_new.m_tt,
-    #          tens_new.m_pp,
-    #          tens_new.m_rt,
-    #          tens_new.m_rp,
-    #          tens_new.m_tp]
-
-    # fig = plt.figure(figsize=(5, 10))
-
-    # obspy.imaging.beachball.beachball(fm=m_est, xy=(100, 0),
-    #                                   fig=fig)
-    # fig.savefig(os.path.join(outdir, 'bb.png'), format='png')
     return tens_new
 
 
-def load_cut_files(data_directory, grf6_directory):
+def load_cut_files(data_directory, grf6_directory, depth_in_m):
     # This can correctly retrieve the channel names of the grf6 synthetics
     # Load grf6 synthetics
-    files_synth = glob.glob(os.path.join(grf6_directory, 'synth*'))
+    files_synth = glob.glob(os.path.join(grf6_directory,
+                                         'synth_%06dkm*' % depth_in_m))
     files_synth.sort()
 
     st_synth_grf = obspy.Stream()
@@ -551,7 +633,7 @@ def load_cut_files(data_directory, grf6_directory):
     return st_data, st_synth_grf
 
 
-def calc_synthetic_from_grf6(st_synth_grf6, st_data, tensor):
+def calc_synthetic_from_grf6(st_synth_grf6, st_data, stf, tensor):
     st_synth = st_data.copy()
 
     for tr in st_synth:
@@ -575,11 +657,14 @@ def calc_synthetic_from_grf6(st_synth_grf6, st_data, tensor):
                    st_synth_grf6.select(station=stat,
                                         location=loc,
                                         channel='MRP')[0].data * tensor.m_rp)
+        # Convolve with STF
+        tr.data = np.convolve(tr.data, stf, mode='same')
+
     return st_synth
 
 
-def plot_waveforms(st_data, st_synth, CC, CClim, iteration=-1,
-                   outdir='./waveforms/'):
+def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf,
+                   tensor, iteration=-1, misfit=0.0, outdir='./waveforms/'):
 
     if not os.path.exists(outdir):
         os.mkdir(outdir)
@@ -617,14 +702,36 @@ def plot_waveforms(st_data, st_synth, CC, CClim, iteration=-1,
                        color='k',
                        linestyle=ls,
                        linewidth=1.5)
-        ax.text(xoffset + 0.05, yoffset + 0.4,
-                '%s' % tr.stats.station)
+        ax.text(xoffset, yoffset + 0.4,
+                '%s \nCC: %4.2f\ndA: %4.1f\ndT: %5.1f' % (tr.stats.station,
+                                                          CC[code],
+                                                          dA[code],
+                                                          dT[code]),
+                color='darkgreen')
+
+        xvals = (arr_times[code] / tr.times()[-1] + xoffset) * np.ones(2)
+        ax.plot(xvals, (yoffset + 0.5, yoffset - 0.5), 'b')
 
         iplot += 1
 
     ax.legend((l_s, l_d), ('Synthetic', 'data'))
     if (iteration >= 0):
-        ax.set_title('Waveform fits, iteration %d' % iteration)
+        ax.set_title('Waveform fits, iteration %d, misfit: %9.3e' %
+                     (iteration, misfit))
+
+    # Plot STF
+    left, bottom, width, height = [0.8, 0.8, 0.18, 0.18]
+    ax2 = fig.add_axes([left, bottom, width, height])
+    ax2.plot(stf)
+    ax2.set_ylim((-max(abs(stf)), max(abs(stf))))
+
+    # Plot beach ball
+    mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
+          tensor.m_rt, tensor.m_rp, tensor.m_tp]
+    b = beach(mt, width=50, linewidth=1, facecolor='b',
+              xy=(100, 0.0), axes=ax2)
+    ax2.add_collection(b)
+
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
     fig.savefig(outfile, format='png')
     plt.close(fig)
@@ -639,15 +746,13 @@ def correct_waveforms(st_data, st_synth, st_synth_grf6):
     # Calculate time shift from combined synthetic waveforms
     dt, CC = calc_timeshift(st_data_work, st_synth_work)
 
-    # Remove bad waveforms
-    # st_synth_work = filter_bad_waveforms(st_synth_work, CC, CCmin)
-    # st_data_work = filter_bad_waveforms(st_data_work, CC, CCmin)
-    # st_synth_grf6_work = filter_bad_waveforms(st_synth_grf6_work, CC, CCmin)
-
     # Create new stream with time-shifted synthetic seismograms
     st_synth_shift = obspy.Stream()
     for tr in st_synth_work:
         code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        # Correct mispicked phases and set the timeshift to 0 there
+        # if abs(dt[code]) > tr.times()[-1] * 0.25:
+        #     dt[code] = 0.0
         tr_new = shift_waveform(tr, dt[code])
         st_synth_shift.append(tr_new)
 
@@ -661,13 +766,14 @@ def correct_waveforms(st_data, st_synth, st_synth_grf6):
     # Calculate amplitude misfit
     dA = calc_amplitude_misfit(st_data_work, st_synth_shift)
 
-    # Create new stream with amplitude-corrected synthetic seismograms
+    # Fill stream with amplitude-corrected synthetic seismograms
     for tr in st_synth_shift:
         code = '%s.%s' % (tr.stats.station, tr.stats.location)
         tr.data *= dA[code]
 
-    # Create new stream with amplitude-corrected Green's functions
+    # Fill stream with amplitude-corrected Green's functions
     for tr in st_synth_grf6_shift:
+        code = '%s.%s' % (tr.stats.station, tr.stats.location)
         tr.data *= dA[code]
 
     return st_data_work, st_synth_shift, st_synth_grf6_shift, CC, dt, dA
@@ -697,12 +803,14 @@ def get_station_coordinates(stream, client_base_url='IRIS'):
 
     for tr in stream:
         stats = tr.stats
-        stat = inv.select(network=stats.network,
-                          station=stats.station,
-                          location=stats.location,
-                          channel=stats.channel)
-        stats.sac = dict(stla=stat[0][0].latitude,
-                         stlo=stat[0][0].longitude)
+        if not hasattr(stats, 'sac'):
+            stat = inv.select(network=stats.network,
+                              station=stats.station,
+                              location=stats.location,
+                              channel=stats.channel)
+            print(stats.network, stats.station, stats.location, stats.channel)
+            stats.sac = dict(stla=stat[0][0].latitude,
+                             stlo=stat[0][0].longitude)
 
 
 def create_Toeplitz(data):
@@ -726,8 +834,9 @@ def create_Toeplitz_mult(stream):
     nstat = len(stream)
     npts = stream[0].stats.npts
     G = np.zeros((nstat * npts, npts))
-
+    # print('G:')
     for istat in range(0, nstat):
+        # print(istat, stream[istat].stats.station)
         G[istat * npts:(istat + 1) * npts][:] = \
             create_Toeplitz(stream[istat].data)
     return G
@@ -744,21 +853,52 @@ def create_matrix_STF_inversion(st_data, st_synth):
 
     # Create data vector (all waveforms concatenated)
     d = np.zeros(npts * nstat)
+    # print('d:')
     for istat in range(0, nstat):
+        # print(istat, st_data[istat].stats.station)
         d[istat * npts:(istat + 1) * npts] = st_data[istat].data[0:npts]
 
     # Create G-matrix
     G = create_Toeplitz_mult(st_synth)
+    # GTG = np.matmul(G.transpose, G)
+    # GTGmean = np.diag(GTG).mean()
+    # J = np.diag(np.linspace(0, GTGmean, GTG.shape[0]))
+    # A = np.matmul(np.inv(np.matmul(GTG, J))
+
     return d, G
 
 
-def invert_STF(st_data, st_synth):
+def invert_STF(st_data, st_synth, method='bound_lsq'):
+    print('Using %d stations for STF inversion' % len(st_data))
+    # for tr in st_data:
+    #     fig = plt.figure()
+    #     ax = fig.add_subplot(111)
+    #     ax.plot(tr.data, label='data')
+    #     ax.plot(st_synth.select(station=tr.stats.station,
+    #                             network=tr.stats.network,
+    #                             location=tr.stats.location)[0].data,
+    #             label='synth')
+    #     ax.legend()
+    #     fig.savefig('%s.png' % tr.stats.station)
+    #     plt.close(fig)
+
+    # st_data.write('data.mseed', format='mseed')
+    # st_synth.write('synth.mseed', format='mseed')
+
     d, G = create_matrix_STF_inversion(st_data, st_synth)
-    m, residual, rank, s = np.linalg.lstsq(G, d)
-    return m
+
+    if method == 'bound_lsq':
+        m = lsq_linear(G, d, (-0.1, 1.1))
+        stf = np.r_[m.x[(len(m.x) - 1) / 2:], m.x[0:(len(m.x) - 1) / 2]]
+    elif method == 'lsq':
+        stf, residual, rank, s = np.linalg.lstsq(G, d)
+    else:
+        raise ValueError('method %s unknown' % method)
+
+    return stf
 
 
-def pick(signal, threshold):
+def pick(trace, threshold):
     """
     i = pick(signal, threshold)
 
@@ -781,11 +921,19 @@ def pick(signal, threshold):
         Index of first surpassing of threshold
 
     """
-    thresholded_data = signal > threshold
+    thresholded_data = abs(trace.data) > threshold
     threshold_edges = np.convolve([1, -1], thresholded_data, mode='same')
     threshold_edges[0] = 0
 
-    return np.where(threshold_edges == 1)[0][0]
+    crossings = np.where(threshold_edges == 1)
+    if crossings[0].any():
+        first_break = trace.times()[crossings[0][0]]
+    else:
+        first_break = trace.times()[0]
+
+    first_break -= float(trace.times()[0])
+
+    return first_break
 
 
 def taper_signal(trace, t_begin, t_end):
@@ -816,8 +964,10 @@ def taper_signal(trace, t_begin, t_end):
     """
     window = np.zeros_like(trace.data)
 
-    i_begin = abs(trace.times() - (t_begin - 2.0)).argmin()
-    i_end = abs(trace.times() - t_end).argmin()
+    times = trace.times() - float(trace.times()[0])
+
+    i_begin = abs(times - (t_begin - 2.0)).argmin()
+    i_end = abs(times - t_end).argmin()
 
     winlen_begin = int(2.0 / trace.stats.delta)
     winlen_end = int((t_end - t_begin) / trace.stats.delta)
@@ -843,3 +993,83 @@ def taper_signal(trace, t_begin, t_end):
             np.hanning(winlen_end * 2)[winlen_end:winlen_end + remainder]
 
     trace.data *= window
+
+
+def taper_before_arrival(st_data, st_synth):
+    """
+    taper_before_arrival(st_data, st_synth)
+
+    Taper corresponding data in both streams before the arrival of seismic
+    energy in the synthetic seismogram.
+
+
+    Parameters
+    ----------
+    st_data : obspy.Stream
+        Stream with measured data. Tapering is done in place.
+
+    st_synth : obspy.Stream
+        Stream with synthetic data. Serves as the reference to determine
+        tapering time window.
+
+
+    Returns
+    -------
+    None
+
+    """
+
+    len_win = 0.0
+    arr_times = dict()
+
+    for tr in st_data:
+        tr_synth = st_synth.select(station=tr.stats.station,
+                                   network=tr.stats.network,
+                                   location=tr.stats.location)[0]
+        threshold = max(abs(tr_synth.data)) * 1e-2
+        arr_time = pick(tr_synth, threshold=threshold)
+        taper_signal(tr, t_begin=arr_time, t_end=arr_time + 30.0)
+
+        len_win = max(len_win, 30.0)
+        arr_times['%s.%s' % (tr.stats.station, tr.stats.location)] = arr_time
+
+    return len_win, arr_times
+
+
+def main():
+
+    helptext = 'Invert for moment tensor and source time function'
+    parser = argparse.ArgumentParser(description=helptext)
+
+    helptext = 'Path to directory with the data to use'
+    parser.add_argument('--data_path', help=helptext, default='BH')
+
+    helptext = 'Path to StationXML file'
+    parser.add_argument('--event_file', help=helptext,
+                        default='../EVENTS-INFO/catalog.ml')
+
+    helptext = 'Path to Instaseis Database'
+    parser.add_argument('--db_path', help=helptext,
+                        default='syngine://ak135f_2s')
+
+    helptext = 'Minimum depth (in kilometer)'
+    parser.add_argument('--min_depth', help=helptext,
+                        default=0.0, type=float)
+
+    helptext = 'Maximum depth (in kilometer)'
+    parser.add_argument('--max_depth', help=helptext,
+                        default=20.0, type=float)
+
+    # Parse input arguments
+    args = parser.parse_args()
+
+    # Run the main program
+    for depth in np.arange(args.min_depth * 1e3,
+                           args.max_depth * 1e3,
+                           step=1e3, dtype=float):
+        inversion(args.data_path, args.event_file, db_path=args.db_path,
+                  depth_in_m=depth, dist_min=30.0, dist_max=100.0, CClim=0.6,
+                  phase_list=('P', 'Pdiff'),
+                  pre_offset=15,
+                  post_offset=36.1,
+                  work_dir='.')

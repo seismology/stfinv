@@ -24,7 +24,9 @@ opts = dict(name=NAME,
             version=VERSION,
             packages=PACKAGES,
             package_data=PACKAGE_DATA,
-            requires=REQUIRES)
+            requires=REQUIRES,
+            entry_points={'console_scripts':
+                          ['stfinv = stfinv.stfinv:main', ], })
 
 
 if __name__ == '__main__':
