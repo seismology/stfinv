@@ -33,6 +33,7 @@ __all__ = ["inversion",
            "create_matrix_STF_inversion",
            "invert_STF",
            "pick",
+           "pick_stream",
            "taper_signal",
            "taper_before_arrival"]
 
@@ -55,7 +56,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     print('Inverting for depth %5.2fkm' % (depth_in_m * 1e-3))
 
     # Read all data
-    st = obspy.read(os.path.join(data_path, '*'))
+    st = obspy.read(data_path)
 
     # Fill stream with station coordinates (in SAC header)
     get_station_coordinates(st)
@@ -122,10 +123,12 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                                                st_synth,
                                                                st_synth_grf6)
 
-        len_win, arr_times = taper_before_arrival(st_data_work,
-                                                  st_synth_corr)
-        len_win, arr_times = taper_before_arrival(st_synth_grf6_corr,
-                                                  st_synth_corr)
+        # len_win, arr_times = taper_before_arrival(st_data_work,
+        #                                           st_synth_corr)
+        # len_win, arr_times = taper_before_arrival(st_synth_grf6_corr,
+        #                                           st_synth_corr)
+
+        arr_times = pick_stream(st_synth_corr)
 
         nstat_used = len(filter_bad_waveforms(st_data_work,
                                               CC, CClim))
@@ -930,9 +933,9 @@ def invert_STF(st_data, st_synth, method='bound_lsq'):
 
 def pick(trace, threshold):
     """
-    i = pick(signal, threshold)
+    first_break = pick(signal, threshold)
 
-    Return first index of signal, which crosses threshold from below.
+    Return first time of signal, which crosses threshold from below.
     Note that the first crossing is returned, so if signal[0] is above
     threshold, this does not count.
 
@@ -947,8 +950,8 @@ def pick(trace, threshold):
 
     Returns
     -------
-    i : int
-        Index of first surpassing of threshold
+    first_breaki : float
+        Time of first crossing of threshold
 
     """
     thresholded_data = abs(trace.data) > threshold
@@ -964,6 +967,38 @@ def pick(trace, threshold):
     first_break -= float(trace.times()[0])
 
     return first_break
+
+
+def pick_stream(st):
+    """
+    arr_times = pick_stream(st)
+
+    Return arrival times in stream as a dictionary. Arrival is defined as
+    crossing of threshold of 1 percent of maximum value of waveform.
+
+    Parameters
+    ----------
+    st : obspy.Stream()
+        Stream with signals.
+
+    threshold : float
+        Threshold
+
+
+    Returns
+    -------
+    arr_times : dict
+        Dictionary with arrival times.
+
+    """
+    arr_times = dict()
+
+    for tr in st:
+        threshold = max(abs(tr.data)) * 1e-2
+        arr_time = pick(tr, threshold=threshold)
+        arr_times['%s.%s' % (tr.stats.station, tr.stats.location)] = arr_time
+
+    return arr_times
 
 
 def taper_signal(trace, t_begin, t_end):
