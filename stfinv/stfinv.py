@@ -1072,7 +1072,7 @@ def main():
     parser = argparse.ArgumentParser(description=helptext)
 
     helptext = 'Path to directory with the data to use'
-    parser.add_argument('--data_path', help=helptext, default='BH')
+    parser.add_argument('--data_path', help=helptext, default='BH/dis.*')
 
     helptext = 'Path to StationXML file'
     parser.add_argument('--event_file', help=helptext,
@@ -1083,20 +1083,24 @@ def main():
                         default='syngine://ak135f_2s')
 
     helptext = 'Minimum depth (in kilometer)'
-    parser.add_argument('--min_depth', help=helptext,
+    parser.add_argument('--depth_min', help=helptext,
                         default=0.0, type=float)
 
     helptext = 'Maximum depth (in kilometer)'
-    parser.add_argument('--max_depth', help=helptext,
+    parser.add_argument('--depth_max', help=helptext,
                         default=20.0, type=float)
+
+    helptext = 'Depth step width (in kilometer)'
+    parser.add_argument('--depth_step', help=helptext,
+                        default=1.0, type=float)
 
     # Parse input arguments
     args = parser.parse_args()
 
     # Run the main program
-    for depth in np.arange(args.min_depth * 1e3,
-                           args.max_depth * 1e3,
-                           step=1e3, dtype=float):
+    for depth in np.arange(args.depth_min * 1e3,
+                           args.depth_max * 1e3,
+                           step=args.depth_step * 1e3, dtype=float):
         inversion(args.data_path, args.event_file, db_path=args.db_path,
                   depth_in_m=depth, dist_min=30.0, dist_max=100.0, CClim=0.6,
                   phase_list=('P', 'Pdiff'),
