@@ -12,7 +12,6 @@ import argparse
 from .utils.results import Results
 from .utils.depth import Depth
 from .utils.iteration import Iteration
-from .utils.plotting import plot_waveforms
 
 
 __all__ = ["inversion",
@@ -140,28 +139,26 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         misfit_old = misfit_new
         misfit_new = calc_D_misfit(CC)
         misfit_reduction = (misfit_old - misfit_new) / misfit_old
-
         res_it = Iteration(tensor=tensor,
                            stf=stf,
                            CC=CC,
                            dA=dA,
                            dT=dT,
+                           arr_times=arr_times,
                            it=it,
+                           CClim=CClim,
                            depth=depth_in_m,
                            misfit=misfit_new,
-                           st_data=st_data,
-                           st_synth=st_synth)
+                           st_data=st_data_work,
+                           st_synth=st_synth_corr)
+
+        res_it.plot(outdir=os.path.join(work_dir,
+                                        'waveforms_%06dkm' % depth_in_m))
+
         res.append(res_it)
 
         print('  it: %02d, misfit: %5.3f (%8.1f pct red. %d stations)' %
               (it, misfit_new, misfit_reduction * 1e2, nstat_used))
-
-        plot_waveforms(st_data_work, st_synth_corr,
-                       arr_times, CC, CClim, dA, dT,
-                       outdir=os.path.join(work_dir,
-                                           'waveforms_%06dkm' % depth_in_m),
-                       misfit=misfit_new,
-                       iteration=it, stf=stf, depth=depth_in_m, tensor=tensor)
 
         # Stop the inversion, if no station can be used
         if (nstat_used == 0):

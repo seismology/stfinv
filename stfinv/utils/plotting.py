@@ -64,7 +64,6 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
                                                           dA[code],
                                                           dT[code]),
                 size=8.0, color='darkgreen')
-
         xvals = ((arr_times[code] / tr.times()[-1]) * 0.8 + xoffset) * \
             np.ones(2)
         ax.plot(xvals, (yoffset + 0.5, yoffset - 0.5), 'b')
