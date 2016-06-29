@@ -95,7 +95,12 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     misfit_new = 2
 
     # Initialize with MT from event file
-    tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
+    try:
+        tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
+    except IndexError:
+        print('No moment tensor present, using explosion. Hilarity may ensue')
+        tensor = obspy.core.event.Tensor(m_rr=1e20, m_tt=1e20, m_pp=1e20,
+                                         m_rp=0.0, m_rt=0.0, m_tp=0.0)
 
     # Init with spike STF
     stf = np.zeros(128)
