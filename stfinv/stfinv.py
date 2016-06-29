@@ -331,10 +331,6 @@ def get_synthetics(stream, origin, db, out_dir='inversion',
                                                       scalmom=1,
                                                       stats=tr_work.stats)
 
-        # else:
-        #     print('%6s, %8.3f degree, out of range\n' %
-        #           (tr.stats.station, distance))
-
     for tr in st_synth:
         tr.write(os.path.join(grf6_dir, 'synth_%06dkm_%s.SAC' %
                               (depth_in_m, tr.id)),
@@ -454,11 +450,23 @@ def calc_amplitude_misfit(st_a, st_b):
 
     """
     dA_all = dict()
+
     for tr_a in st_a:
         try:
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
-            dA = abs(np.sum(tr_a.data * tr_b.data)) / np.sum(tr_b.data ** 2)
+
+            if abs(tr_a.stats.npts - tr_b.stats.npts) > 1:
+                raise ValueError('Lengths of traces differ by more than \
+                                  one sample')
+            elif abs(tr_a.stats.npts - tr_b.stats.npts) == 1:
+                len_common = min(tr_a.stats.npts, tr_b.stats.npts)
+            else:
+                len_common = tr_a.stats.npts
+
+            dA = abs(np.sum(tr_a.data[0:len_common] *
+                            tr_b.data[0:len_common])) / \
+                np.sum(tr_b.data ** 2)
 
             dA_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dA
         except IndexError:
@@ -480,10 +488,18 @@ def calc_L2_misfit(st_a, st_b):
         try:
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
-            RMS = np.sum((tr_a.data - tr_b.data) ** 2)
 
-            # print('%s.%s: %e ' %
-            #       (tr_a.stats.station, tr_a.stats.location, RMS))
+            if abs(tr_a.stats.npts - tr_b.stats.npts) > 1:
+                raise ValueError('Lengths of traces differ by more than \
+                                  one sample')
+            elif abs(tr_a.stats.npts - tr_b.stats.npts) == 1:
+                len_common = min(tr_a.stats.npts, tr_b.stats.npts)
+            else:
+                len_common = tr_a.stats.npts
+
+            RMS = np.sum((tr_a.data[0:len_common] -
+                          tr_b.data[0:len_common]) ** 2)
+
             L2 += RMS
         except IndexError:
             print('Did not find %s' % (tr_a.stats.station))
