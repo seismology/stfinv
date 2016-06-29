@@ -694,6 +694,7 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf,
     ax = fig.add_subplot(111)
     nplots = len(st_data)
     nrows = int(np.sqrt(nplots)) + 1
+    ncols = nplots / nrows + 1
     iplot = 0
     for tr in st_data:
 
@@ -703,54 +704,62 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf,
         normfac = max(np.abs(tr.data))
 
         yoffset = irow * 1.5
-        xoffset = icol * 1.2
+        xoffset = icol
 
-        xvals = np.linspace(0, 1, num=tr.stats.npts) + xoffset
         code = '%s.%s' % (tr.stats.station, tr.stats.location)
         if CC[code] > CClim:
             ls = '-'
         else:
-            ls = '--'
+            ls = 'dotted'
 
         yvals = st_synth.select(station=tr.stats.station)[0].data / normfac
-        l_s, = ax.plot(xvals,
+        xvals = np.linspace(0, 0.8, num=len(yvals))
+        l_s, = ax.plot(xvals + xoffset,
                        yvals + yoffset,
                        color='r',
                        linestyle=ls,
                        linewidth=2)
-        l_d, = ax.plot(xvals,
-                       tr.data / normfac + yoffset,
+
+        yvals = tr.data / normfac
+        xvals = np.linspace(0, 0.8, num=len(yvals))
+        l_d, = ax.plot(xvals + xoffset,
+                       yvals + yoffset,
                        color='k',
                        linestyle=ls,
                        linewidth=1.5)
-        ax.text(xoffset, yoffset + 0.4,
+        ax.text(xoffset, yoffset + 0.2,
                 '%s \nCC: %4.2f\ndA: %4.1f\ndT: %5.1f' % (tr.stats.station,
                                                           CC[code],
                                                           dA[code],
                                                           dT[code]),
-                color='darkgreen')
+                size=8.0, color='darkgreen')
 
-        xvals = (arr_times[code] / tr.times()[-1] + xoffset) * np.ones(2)
+        xvals = ((arr_times[code] / tr.times()[-1]) * 0.8 + xoffset) * \
+            np.ones(2)
         ax.plot(xvals, (yoffset + 0.5, yoffset - 0.5), 'b')
 
         iplot += 1
 
     ax.legend((l_s, l_d), ('Synthetic', 'data'))
+    ax.set_xlim(0, ncols * 1.2)
+
     if (iteration >= 0):
         ax.set_title('Waveform fits, iteration %d, misfit: %9.3e' %
                      (iteration, misfit))
 
     # Plot STF
-    left, bottom, width, height = [0.8, 0.8, 0.18, 0.18]
+    left, bottom, width, height = [0.7, 0.2, 0.18, 0.18]
     ax2 = fig.add_axes([left, bottom, width, height])
     ax2.plot(stf)
-    ax2.set_ylim((-max(abs(stf)), max(abs(stf))))
+    ax2.set_ylim((-0.2, 1.1))
+    ax2.set_xticks([])
+    ax2.set_yticks([])
 
     # Plot beach ball
     mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
           tensor.m_rt, tensor.m_rp, tensor.m_tp]
     b = beach(mt, width=50, linewidth=1, facecolor='b',
-              xy=(100, 0.0), axes=ax2)
+              xy=(100, 0.5), axes=ax2)
     ax2.add_collection(b)
 
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
