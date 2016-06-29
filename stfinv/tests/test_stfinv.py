@@ -1,8 +1,7 @@
-import numpy as np
-import numpy.testing as npt
 from matplotlib import use
 use('Agg')
-import matplotlib.pyplot as plt
+import numpy as np
+import numpy.testing as npt
 import obspy
 import instaseis
 import os
@@ -406,22 +405,22 @@ def test_taper_signal():
 
 def test_taper_before_arrival():
 
-    testdata_dir = './scripts/testinversion/data/'
+    testdata_dir = 'stfinv/data'
     st_data = obspy.read(os.path.join(testdata_dir,
                                       'data_II.BFO.00.BHZ.SAC'))
     st_synth = obspy.read(os.path.join(testdata_dir,
                                        'data_II.BFO.00.MPP.SAC'))
 
-    code = '%s.%s' % (st_data[0].stats.station,
-                      st_data[0].stats.location)
+    # code = '%s.%s' % (st_data[0].stats.station,
+    #                   st_data[0].stats.location)
 
-    plt.plot(st_data[0].times(), st_data[0].data, label='untapered')
+    # plt.plot(st_data[0].times(), st_data[0].data, label='untapered')
     len_win, arr_times = stfinv.taper_before_arrival(st_data,
                                                      st_synth)
 
-    plt.plot(st_data[0].times(), st_data[0].data, label='tapered')
-    plt.plot(st_synth[0].times(), st_synth[0].data * 1e18,
-             label='synth')
-    plt.plot(arr_times[code] * np.ones(2), (-1e-6, 1e-6))
-    plt.legend()
-    plt.savefig('taper_before_arrival.png')
+    # plt.plot(st_data[0].times(), st_data[0].data, label='tapered')
+    # plt.plot(st_synth[0].times(), st_synth[0].data * 1e18,
+    #          label='synth')
+    # plt.plot(arr_times[code] * np.ones(2), (-1e-6, 1e-6))
+    # plt.legend()
+    # plt.savefig('taper_before_arrival.png')
