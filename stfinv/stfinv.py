@@ -5,15 +5,14 @@ import os
 import instaseis
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
-from obspy.imaging.beachball import beach
 from scipy import signal, linalg
 import scipy.fftpack as fft
 from scipy.optimize import lsq_linear
-import matplotlib.pyplot as plt
 import argparse
 from .utils.results import Results
 from .utils.depth import Depth
 from .utils.iteration import Iteration
+from .utils.plotting import plot_waveforms
 
 
 __all__ = ["inversion",
@@ -28,7 +27,6 @@ __all__ = ["inversion",
            "invert_MT",
            "load_cut_files",
            "calc_synthetic_from_grf6",
-           "plot_waveforms",
            "correct_waveforms",
            "get_station_coordinates",
            "create_Toeplitz",
@@ -143,7 +141,16 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         misfit_new = calc_D_misfit(CC)
         misfit_reduction = (misfit_old - misfit_new) / misfit_old
 
-        res_it = Iteration(tensor, stf, CC, dA, dT, it, depth_in_m, misfit_new)
+        res_it = Iteration(tensor=tensor,
+                           stf=stf,
+                           CC=CC,
+                           dA=dA,
+                           dT=dT,
+                           it=it,
+                           depth=depth_in_m,
+                           misfit=misfit_new,
+                           st_data=st_data,
+                           st_synth=st_synth)
         res.append(res_it)
 
         print('  it: %02d, misfit: %5.3f (%8.1f pct red. %d stations)' %
@@ -154,7 +161,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                        outdir=os.path.join(work_dir,
                                            'waveforms_%06dkm' % depth_in_m),
                        misfit=misfit_new,
-                       iteration=it, stf=stf, tensor=tensor)
+                       iteration=it, stf=stf, depth=depth_in_m, tensor=tensor)
 
         # Stop the inversion, if no station can be used
         if (nstat_used == 0):
@@ -697,89 +704,6 @@ def calc_synthetic_from_grf6(st_synth_grf6, st_data, stf, tensor):
     return st_synth
 
 
-def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf,
-                   tensor, iteration=-1, misfit=0.0, outdir='./waveforms/'):
-
-    if not os.path.exists(outdir):
-        os.mkdir(outdir)
-
-    fig = plt.figure(figsize=(15, 10))
-    ax = fig.add_subplot(111)
-    nplots = len(st_data)
-    nrows = int(np.sqrt(nplots)) + 1
-    ncols = nplots / nrows + 1
-    iplot = 0
-    for tr in st_data:
-
-        irow = np.mod(iplot, nrows)
-        icol = np.int(iplot / nrows)
-
-        normfac = max(np.abs(tr.data))
-
-        yoffset = irow * 1.5
-        xoffset = icol
-
-        code = '%s.%s' % (tr.stats.station, tr.stats.location)
-        if CC[code] > CClim:
-            ls = '-'
-        else:
-            ls = 'dotted'
-
-        yvals = st_synth.select(station=tr.stats.station)[0].data / normfac
-        xvals = np.linspace(0, 0.8, num=len(yvals))
-        l_s, = ax.plot(xvals + xoffset,
-                       yvals + yoffset,
-                       color='r',
-                       linestyle=ls,
-                       linewidth=2)
-
-        yvals = tr.data / normfac
-        xvals = np.linspace(0, 0.8, num=len(yvals))
-        l_d, = ax.plot(xvals + xoffset,
-                       yvals + yoffset,
-                       color='k',
-                       linestyle=ls,
-                       linewidth=1.5)
-        ax.text(xoffset, yoffset + 0.2,
-                '%s \nCC: %4.2f\ndA: %4.1f\ndT: %5.1f' % (tr.stats.station,
-                                                          CC[code],
-                                                          dA[code],
-                                                          dT[code]),
-                size=8.0, color='darkgreen')
-
-        xvals = ((arr_times[code] / tr.times()[-1]) * 0.8 + xoffset) * \
-            np.ones(2)
-        ax.plot(xvals, (yoffset + 0.5, yoffset - 0.5), 'b')
-
-        iplot += 1
-
-    ax.legend((l_s, l_d), ('Synthetic', 'data'))
-    ax.set_xlim(0, ncols * 1.2)
-
-    if (iteration >= 0):
-        ax.set_title('Waveform fits, iteration %d, misfit: %9.3e' %
-                     (iteration, misfit))
-
-    # Plot STF
-    left, bottom, width, height = [0.7, 0.2, 0.18, 0.18]
-    ax2 = fig.add_axes([left, bottom, width, height])
-    ax2.plot(stf)
-    ax2.set_ylim((-0.2, 1.1))
-    ax2.set_xticks([])
-    ax2.set_yticks([])
-
-    # Plot beach ball
-    mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
-          tensor.m_rt, tensor.m_rp, tensor.m_tp]
-    b = beach(mt, width=50, linewidth=1, facecolor='b',
-              xy=(100, 0.5), axes=ax2)
-    ax2.add_collection(b)
-
-    outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
-    fig.savefig(outfile, format='png')
-    plt.close(fig)
-
-
 def correct_waveforms(st_data, st_synth, st_synth_grf6):
     # Create working copies of streams
     st_data_work = st_data.copy()
@@ -912,7 +836,7 @@ def create_matrix_STF_inversion(st_data, st_synth):
 
 
 def invert_STF(st_data, st_synth, method='bound_lsq'):
-    print('Using %d stations for STF inversion' % len(st_data))
+    # print('Using %d stations for STF inversion' % len(st_data))
     # for tr in st_data:
     #     fig = plt.figure()
     #     ax = fig.add_subplot(111)
@@ -1145,7 +1069,7 @@ def main():
     # Run the main program
     result = Results()
     for depth in np.arange(args.depth_min * 1e3,
-                           args.depth_max * 1e3,
+                           (args.depth_max + args.depth_step) * 1e3,
                            step=args.depth_step * 1e3, dtype=float):
         result.append(inversion(args.data_path, args.event_file,
                                 db_path=args.db_path,
@@ -1158,3 +1082,4 @@ def main():
     best_depth = result.get_best_depth()
     print(best_depth.get_best_solution())
     print(best_depth.get_best_solution().misfit)
+    best_depth.get_best_solution().plot('./best_waveform')
