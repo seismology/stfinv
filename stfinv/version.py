@@ -67,4 +67,4 @@ PACKAGES = ['stfinv',
             'stfinv.tests',
             'stfinv.utils']
 PACKAGE_DATA = {'stfinv': [pjoin('data', '*')]}
-REQUIRES = ['numpy', 'obspy', 'instaseis']
+REQUIRES = ['numpy', 'obspy', 'instaseis', 'cartopy']

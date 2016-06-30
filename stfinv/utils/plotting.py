@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 from obspy.imaging.beachball import beach
+import cartopy.crs as ccrs
 
 
 def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
@@ -92,6 +93,56 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
               xy=(100, 0.5), axes=ax2)
     ax2.add_collection(b)
 
+    # Plot Map
+    plot_map(st_synth, CC, -30, 50, fig=fig,
+             rect=[0.7, 0.4, 0.25, 0.30])
+
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
     fig.savefig(outfile, format='png')
     plt.close(fig)
+
+
+def plot_map(st_synth, values, central_longitude, central_latitude,
+             colormap='viridis', fig=None, rect=[1.0, 1.0, 1.0, 1.0]):
+
+    # Create array of latitudes, longitudes, CC
+    lats = []
+    lons = []
+    c = []
+    for tr in st_synth:
+        code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        lats.append(tr.stats.sac.stla)
+        lons.append(tr.stats.sac.stlo)
+        c.append(values[code])
+
+    ax = add_ortho(lats=lats, lons=lons, color=c,
+                   colormap=colormap, fig=fig, rect=rect,
+                   central_longitude=central_longitude,
+                   central_latitude=central_latitude)
+
+    return ax
+
+
+def add_ortho(lats, lons, color, size=1e2, marker='o',
+              colormap='viridis', fig=None,
+              rect=[0.0, 0.0, 1.0, 1.0],
+              central_longitude=8, central_latitude=50):
+    if not fig:
+        fig = plt.figure()
+
+    proj = ccrs.Orthographic(central_longitude=central_longitude,
+                             central_latitude=central_latitude)
+    ax = fig.add_axes(rect, projection=proj)
+
+    # make the map global rather than have it zoom in to
+    # the extents of any plotted data
+    ax.set_global()
+
+    ax.stock_img()
+    ax.coastlines()
+    ax.gridlines()
+
+    plt.scatter(lats, lons, s=size, c=color, marker=marker, cmap=colormap,
+                transform=ccrs.Geodetic())
+
+    return ax
