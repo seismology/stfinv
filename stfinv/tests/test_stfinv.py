@@ -273,11 +273,12 @@ def test_get_station_coordinates():
 
 
 def test_create_Toeplitz():
+    from stfinv.utils.inversion import _create_Toeplitz
     # even length
     d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0., 1])
     d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0., 0])
 
-    G = stfinv.create_Toeplitz(d2)
+    G = _create_Toeplitz(d2)
     npt.assert_allclose(np.matmul(G, d1),
                         np.convolve(d1, d2, 'same'),
                         atol=1e-7, rtol=1e-7)
@@ -286,20 +287,21 @@ def test_create_Toeplitz():
     d1 = np.array([1., 0., 0., 0., 1., 2., 1., 0., 0.])
     d2 = np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.])
 
-    G = stfinv.create_Toeplitz(d2)
+    G = _create_Toeplitz(d2)
     npt.assert_allclose(np.matmul(G, d1),
                         np.convolve(d1, d2, 'same'),
                         atol=1e-7, rtol=1e-7)
 
 
 def test_create_Toeplitz_mult():
+    from stfinv.utils.inversion import _create_Toeplitz_mult
     tr = obspy.Trace(data=np.array([0., 0., 0., 0., 1., 2., 1., 0., 0.]))
     st = obspy.Stream(tr)
     tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
     st.append(tr)
 
     d = np.array([0., 0., 1., 1., 2., 1., 1., 0., 0.])
-    G = stfinv.create_Toeplitz_mult(st)
+    G = _create_Toeplitz_mult(st)
 
     ref = [np.convolve(st[0].data, d, 'same'),
            np.convolve(st[1].data, d, 'same')]
@@ -308,6 +310,7 @@ def test_create_Toeplitz_mult():
 
 
 def test_invert_STF():
+    from stfinv.utils.inversion import invert_STF
     tr = obspy.Trace(data=np.array([0., 0., 0., 0., 1., 2., 1., 0., 0.]))
     st_synth = obspy.Stream(tr)
     tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
@@ -320,7 +323,7 @@ def test_invert_STF():
     tr = obspy.Trace(data=np.convolve(st_synth[1].data, stf_ref, 'same'))
     st_data.append(tr)
 
-    stf = stfinv.invert_STF(st_data, st_synth)
+    stf = invert_STF(st_data, st_synth)
 
     halflen = (len(stf) + 1) / 2
     stf = np.r_[stf[halflen:], stf[0:halflen]]
@@ -357,6 +360,15 @@ def test_pick():
     threshold = 9.0
     idx = stfinv.pick(tr, threshold)
     npt.assert_equal(idx, 0.0, err_msg='Pick zero, if all below threshold')
+
+
+def test_pick_stream():
+    testdata_dir = 'stfinv/data'
+    st = obspy.read(os.path.join(testdata_dir,
+                    'data_II.BFO.00.MPP.SAC'))
+    arr_times = stfinv.pick_stream(st)
+
+    npt.assert_allclose(arr_times['BFO.00'], 12.1)
 
 
 def test_taper_signal():

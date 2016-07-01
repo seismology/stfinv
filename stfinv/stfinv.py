@@ -5,13 +5,13 @@ import os
 import instaseis
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
-from scipy import signal, linalg
+from scipy import signal
 import scipy.fftpack as fft
-from scipy.optimize import lsq_linear
 import argparse
 from .utils.results import Results
 from .utils.depth import Depth
 from .utils.iteration import Iteration
+from .utils.inversion import invert_MT, invert_STF
 
 
 __all__ = ["inversion",
@@ -21,17 +21,11 @@ __all__ = ["inversion",
            "calc_timeshift",
            "calc_amplitude_misfit",
            "calc_L2_misfit",
-           "create_matrix_MT_inversion",
            "filter_bad_waveforms",
-           "invert_MT",
            "load_cut_files",
            "calc_synthetic_from_grf6",
            "correct_waveforms",
            "get_station_coordinates",
-           "create_Toeplitz",
-           "create_Toeplitz_mult",
-           "create_matrix_STF_inversion",
-           "invert_STF",
            "pick",
            "pick_stream",
            "taper_signal",
@@ -528,57 +522,6 @@ def calc_L2_misfit(st_a, st_b):
     return np.sqrt(L2) / len(st_a)
 
 
-def create_matrix_MT_inversion(st_data, st_grf6):
-    """
-    d, G = create_matrix_MT_inversion(st_data, st_grf6):
-
-    Create data vector d and sensitivity matrix G for the MT inversion.
-
-    Parameters
-    ----------
-    st_data : obspy.Stream
-        Stream with N (measured) waveforms
-
-    st_grf6 : obspy.Stream
-        Stream with 6xN synthetic Green's functions, which should be corrected
-        for time shift and amplitude errors in the data.
-
-    Returns
-    -------
-    d : np.array
-        Data vector with shape (N * npts), where N is the number of common
-        stations in st_data and st_grf6.
-
-    G : np.array
-        Data vector with shape (6 x N * npts), where N is the number of common
-        stations in st_data and st_grf6.
-
-    """
-    # Create matrix for MT inversion:
-    npts = st_grf6[0].stats.npts
-
-    nstat = len(st_data)
-
-    # Check number of traces in input streams
-    if (nstat * 6 != len(st_grf6)):
-        raise IndexError('len(st_grf6) has to be 6*len(st_data)')
-
-    # Create data vector (all waveforms concatenated)
-    d = np.zeros((npts) * nstat)
-    for istat in range(0, nstat):
-        d[istat * npts:(istat + 1) * npts] = st_data[istat].data[0:npts]
-
-    # Create G-matrix
-    G = np.zeros((6, npts * nstat))
-
-    channels = ['MTT', 'MPP', 'MRR', 'MTP', 'MRT', 'MRP']
-    for icomp in range(0, 6):
-        for istat in range(0, nstat):
-            G[icomp][istat * npts:(istat + 1) * npts] = \
-                st_grf6.select(channel=channels[icomp])[istat].data[0:npts]
-    return d, G
-
-
 def filter_bad_waveforms(stream, CC, CClim):
     # Create new stream with time-shifted synthetic seismograms
     st_filtered = obspy.Stream()
@@ -591,60 +534,6 @@ def filter_bad_waveforms(stream, CC, CClim):
         # else:
         #    print('out')
     return st_filtered
-
-
-def invert_MT(st_data, st_grf6, stf=[1], outdir='focmec'):
-    """
-    tens_new = invert_MT(st_data, st_grf6, dA, tens_orig):
-
-    Invert for a new moment tensor using the data stream st_data and the
-    grf6 stream st_grf6.
-
-    Parameters
-    ----------
-    st_data : obspy.Stream
-        Stream with N (measured) waveforms
-
-    st_grf6 : obspy.Stream
-        Stream with 6xN synthetic Green's functions, which should be corrected
-        for time shift and amplitude errors in the data.
-
-    stf : np.array
-        Normalized source time function (slip rate function) with the
-        same sampling rate as the streams.
-
-    outdir : String
-        Path in which to write Beachballs for each iteration
-
-
-    Returns
-    -------
-    tens_new : obspy.core.event.Tensor
-        Updated moment tensor
-
-    """
-
-    # Create working copy
-    st_grf6_work = st_grf6.copy()
-
-    # Convolve with STF
-    for tr in st_grf6_work:
-        tr.data = np.convolve(tr.data, stf, mode='same')
-
-    d, G = create_matrix_MT_inversion(st_data, st_grf6_work)
-
-    m, residual, rank, s = np.linalg.lstsq(G.T, d)
-
-    # Order in m:
-    # ['MXX', 'MYY', 'MZZ', 'MXY', 'MXZ', 'MYZ']
-    #   mtt,   mpp,   mrr,   mtp    mrt    mrp
-    tens_new = obspy.core.event.Tensor(m_tt=m[0],
-                                       m_pp=m[1],
-                                       m_rr=m[2],
-                                       m_tp=m[3],
-                                       m_rt=m[4],
-                                       m_rp=m[5])
-    return tens_new
 
 
 def load_cut_files(data_directory, grf6_directory, depth_in_m):
@@ -775,91 +664,6 @@ def get_station_coordinates(stream, client_base_url='IRIS'):
             print(stats.network, stats.station, stats.location, stats.channel)
             stats.sac = dict(stla=stat[0][0].latitude,
                              stlo=stat[0][0].longitude)
-
-
-def create_Toeplitz(data):
-    npts = len(data)
-    padding = np.zeros((npts) / 2 + 1)
-
-    if np.mod(npts, 2) == 0:
-        # even number of elements
-        start = (npts) / 2 - 1
-        first_col = np.r_[data[start:-1], padding[0:-1]]
-    else:
-        # odd number of elements
-        start = (npts) / 2
-        first_col = np.r_[data[start:-1], padding]
-
-    first_row = np.r_[data[start:0:-1], padding]
-    return linalg.toeplitz(first_col, first_row)
-
-
-def create_Toeplitz_mult(stream):
-    nstat = len(stream)
-    npts = stream[0].stats.npts
-    G = np.zeros((nstat * npts, npts))
-    # print('G:')
-    for istat in range(0, nstat):
-        # print(istat, stream[istat].stats.station)
-        G[istat * npts:(istat + 1) * npts][:] = \
-            create_Toeplitz(stream[istat].data)
-    return G
-
-
-def create_matrix_STF_inversion(st_data, st_synth):
-    # Create matrix for STF inversion:
-    npts = st_synth[0].stats.npts
-    nstat = len(st_data)
-
-    # Check number of traces in input streams
-    if (nstat != len(st_synth)):
-        raise IndexError('len(st_synth) has to be len(st_data)')
-
-    # Create data vector (all waveforms concatenated)
-    d = np.zeros(npts * nstat)
-    # print('d:')
-    for istat in range(0, nstat):
-        # print(istat, st_data[istat].stats.station)
-        d[istat * npts:(istat + 1) * npts] = st_data[istat].data[0:npts]
-
-    # Create G-matrix
-    G = create_Toeplitz_mult(st_synth)
-    # GTG = np.matmul(G.transpose, G)
-    # GTGmean = np.diag(GTG).mean()
-    # J = np.diag(np.linspace(0, GTGmean, GTG.shape[0]))
-    # A = np.matmul(np.inv(np.matmul(GTG, J))
-
-    return d, G
-
-
-def invert_STF(st_data, st_synth, method='bound_lsq'):
-    # print('Using %d stations for STF inversion' % len(st_data))
-    # for tr in st_data:
-    #     fig = plt.figure()
-    #     ax = fig.add_subplot(111)
-    #     ax.plot(tr.data, label='data')
-    #     ax.plot(st_synth.select(station=tr.stats.station,
-    #                             network=tr.stats.network,
-    #                             location=tr.stats.location)[0].data,
-    #             label='synth')
-    #     ax.legend()
-    #     fig.savefig('%s.png' % tr.stats.station)
-    #     plt.close(fig)
-
-    # st_data.write('data.mseed', format='mseed')
-    # st_synth.write('synth.mseed', format='mseed')
-
-    d, G = create_matrix_STF_inversion(st_data, st_synth)
-
-    if method == 'bound_lsq':
-        m = lsq_linear(G, d, (-0.1, 1.1))
-        stf = np.r_[m.x[(len(m.x) - 1) / 2:], m.x[0:(len(m.x) - 1) / 2]]
-    elif method == 'lsq':
-        stf, residual, rank, s = np.linalg.lstsq(G, d)
-    else:
-        raise ValueError('method %s unknown' % method)
-
-    return stf
 
 
 def pick(trace, threshold):
