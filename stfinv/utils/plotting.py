@@ -79,17 +79,19 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
                      (depth, iteration, misfit))
 
     # Plot STF
-    left, bottom, width, height = [0.7, 0.2, 0.18, 0.18]
+    left, bottom, width, height = [0.8, 0.2, 0.14, 0.18]
     ax2 = fig.add_axes([left, bottom, width, height])
     ax2.plot(stf)
     ax2.set_ylim((-0.2, 1.1))
+    ax2.set_xlim((0.0, len(yvals)))
     ax2.set_xticks([])
     ax2.set_yticks([])
 
     # Plot beach ball
     mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
           tensor.m_rt, tensor.m_rp, tensor.m_tp]
-    b = beach(mt, width=50, linewidth=1, facecolor='b',
+    print(mt)
+    b = beach(mt, width=50, linewidth=1, facecolor='r',
               xy=(100, 0.5), axes=ax2)
     ax2.add_collection(b)
 
