@@ -9,19 +9,6 @@ import stfinv
 from obspy.geodetics import gps2dist_azimuth
 
 
-# def test_inversion():
-#     data_path = './stfinv/data/dis*.BHZ'
-#     db_path='syngine://ak135f_2s'
-#     # db_path = '/import/tethys-2g-nas-dump/instaseis/PREMiso_2s/'
-#     for depth in range(5, 15):
-#         stfinv.inversion(data_path=data_path,
-#                          event_file='./stfinv/data/virginia.xml',
-#                          #pre_offset=30,
-#                          #post_offset=72.3,
-#                          db_path=db_path,
-#                          depth_in_m=depth * 1e3)
-
-
 def test_seiscomp_to_moment_tensor():
     # import matplotlib.pyplot as plt
 
@@ -159,8 +146,8 @@ def test_calc_synthetic_from_grf6():
     distance *= km2deg
 
     # Define Moment tensor
-    tensor = obspy.core.event.Tensor(m_rr=0e20, m_pp=0e20, m_tt=0e20,
-                                     m_rt=0.0, m_rp=0.0, m_tp=-1e20)
+    tensor = obspy.core.event.Tensor(m_rr=1e20, m_pp=-2e20, m_tt=0.5e20,
+                                     m_rt=5e19, m_rp=-7e19, m_tp=-1e20)
 
     # Get a reference trace with normal instaseis
     rec = instaseis.Receiver(latitude=reclat, longitude=reclon)
@@ -196,8 +183,107 @@ def test_calc_synthetic_from_grf6():
     # st_ref.plot(outfile='ref.png')
 
     npt.assert_allclose(st_ref[0].data, st_synth[0].data,
-                        atol=1e-6,
+                        rtol=1e-1,
                         err_msg='Synthetic not the same')
+
+
+def test_invert_MT():
+    from stfinv.utils.inversion import invert_MT
+
+    # db = instaseis.open_db('syngine://prem_a_20s')
+
+    # evlat = 50.0
+    # evlon = 8.0
+
+    # reclat = 10.0
+    # reclon = 10.0
+
+    # evdepth = 10.0
+
+    # # gps2dist_azimuth is not optimal here, since we need the geographical
+    # # coordinates, and not WGS84. Try to  around it by switching ellipticity
+    # # off.
+    # distance, azi, bazi = gps2dist_azimuth(evlat, evlon,
+    #                                        reclat, reclon,
+    #                                        f=0.0)
+
+    # # The following functions expect distance in degrees
+    # km2deg = 360.0 / (2 * np.pi * 6378137.0)
+    # distance *= km2deg
+
+    # # Define Moment tensor
+    # tensor = obspy.core.event.Tensor(m_rr=1e20, m_pp=-2e20, m_tt=0.5e20,
+    #                                  m_rt=5e19, m_rp=-7e19, m_tp=-1e20)
+
+    # # Get a reference trace with normal instaseis
+    # rec = instaseis.Receiver(latitude=reclat, longitude=reclon)
+
+    # src = instaseis.Source(latitude=evlat, longitude=evlon,
+    #                        m_rr=tensor.m_rr,
+    #                        m_tt=tensor.m_tt,
+    #                        m_pp=tensor.m_pp,
+    #                        m_tp=tensor.m_tp,
+    #                        m_rt=tensor.m_rt,
+    #                        m_rp=tensor.m_rp,
+    #                        depth_in_m=evdepth)
+
+    # st_ref = db.get_seismograms(src, rec, dt=0.1, components='Z')
+
+    # get Greens functions
+    # gf_synth = db.get_greens_function(epicentral_distance_in_degree=distance,
+    #                                   source_depth_in_m=evdepth,
+    #                                   dt=0.1)
+
+    # Convert to GRF6 format
+    # st_grf6 = stfinv.seiscomp_to_moment_tensor(gf_synth,
+    #                                            azimuth=azi,
+    #                                            scalmom=1,
+    #                                            stats=st_ref[0].stats)
+
+    st = obspy.Stream()
+
+    tr = obspy.Trace(data=np.array([1, 0, 0, 0, 0, 0]))
+    tr.stats['channel'] = 'MRR'
+    st.append(tr)
+
+    tr = obspy.Trace(data=np.array([0, 1, 0, 0, 0, 0]))
+    tr.stats['channel'] = 'MTT'
+    st.append(tr)
+
+    tr = obspy.Trace(data=np.array([0, 0, 1, 0, 0, 0]))
+    tr.stats['channel'] = 'MPP'
+    st.append(tr)
+
+    tr = obspy.Trace(data=np.array([0, 0, 0, 1, 0, 0]))
+    tr.stats['channel'] = 'MRT'
+    st.append(tr)
+
+    tr = obspy.Trace(data=np.array([0, 0, 0, 0, 1, 0]))
+    tr.stats['channel'] = 'MRP'
+    st.append(tr)
+
+    tr = obspy.Trace(data=np.array([0, 0, 0, 0, 0, 1]))
+    tr.stats['channel'] = 'MTP'
+    st.append(tr)
+
+    st_ref = obspy.Stream()
+    tr = obspy.Trace(data=np.array([1, 2, 3, 4, 5, 6]))
+    st_ref.append(tr)
+
+    tensor_new = invert_MT(st_ref, st)
+
+    npt.assert_allclose(1, tensor_new.m_rr,
+                        rtol=1e-3, err_msg='MRR not the same')
+    npt.assert_allclose(2, tensor_new.m_tt,
+                        rtol=1e-3, err_msg='MTT not the same')
+    npt.assert_allclose(3, tensor_new.m_pp,
+                        rtol=1e-3, err_msg='MPP not the same')
+    npt.assert_allclose(4, tensor_new.m_rt,
+                        rtol=1e-3, err_msg='MRT not the same')
+    npt.assert_allclose(5, tensor_new.m_rp,
+                        rtol=1e-3, err_msg='MRP not the same')
+    npt.assert_allclose(6, tensor_new.m_tp,
+                        rtol=1e-3, err_msg='MTP not the same')
 
 
 def test_shift_waveform():
