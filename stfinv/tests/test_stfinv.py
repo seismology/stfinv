@@ -272,6 +272,8 @@ def test_invert_MT():
 
     tensor_new = invert_MT(st_ref, st)
 
+    print(tensor_new)
+
     npt.assert_allclose(1, tensor_new.m_rr,
                         rtol=1e-3, err_msg='MRR not the same')
     npt.assert_allclose(2, tensor_new.m_tt,
