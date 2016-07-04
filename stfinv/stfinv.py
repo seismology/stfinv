@@ -92,17 +92,18 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         tensor = obspy.core.event.Tensor(m_rr=1e20, m_tt=1e20, m_pp=1e20,
                                          m_rp=0.0, m_rt=0.0, m_tp=0.0)
 
-    # Init with spike STF
-    duration = 10**(0.5*(cat[0].magnitudes[0].mag/5.7)) * 5.0
+    # Init with Gaussian STF with a length T:
+    # log10 T propto 0.5*Magnitude
+    # Scaling is such that the 5.7 Virginia event takes 5 seconds
+    duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0
     print('Assuming duration of %8.1f sec' % duration)
-    stf = signal.gaussian(duration*3, duration / 2 / db.info.dt)
+    stf = signal.gaussian(duration * 3, duration / 2 / db.info.dt)
     # stf = np.zeros(128)
     # stf[1] = 1.
 
     # Define butterworth filter at database corner frequency
     b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
                                 (1. / 0.2)))
-
 
     # Start values to ensure one iteration
     it = 0
@@ -121,7 +122,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
             correct_waveforms(st_data_work,
                               st_synth,
                               st_synth_grf6,
-                              allow_negative_CC=True) #(it==0))
+                              allow_negative_CC=True)  # (it==0))
 
         # len_win, arr_times = taper_before_arrival(st_data_work,
         #                                           st_synth_corr)
