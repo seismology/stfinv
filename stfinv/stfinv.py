@@ -84,11 +84,6 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     for tr in st_data:
         tr.data = np.convolve(tr.data, sliprate)[0:tr.stats.npts]
 
-    # Start values to ensure one iteration
-    it = 0
-    misfit_reduction = 1e8
-    misfit_new = 2
-
     # Initialize with MT from event file
     try:
         tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
@@ -98,13 +93,21 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                          m_rp=0.0, m_rt=0.0, m_tp=0.0)
 
     # Init with spike STF
-    stf = np.zeros(128)
-    stf[1] = 1.
+    duration = 10**(0.5*(cat[0].magnitudes[0].mag/5.7)) * 5.0
+    print('Assuming duration of %8.1f sec' % duration)
+    stf = signal.gaussian(duration*3, duration / 2 / db.info.dt)
+    # stf = np.zeros(128)
+    # stf[1] = 1.
 
     # Define butterworth filter at database corner frequency
     b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
                                 (1. / 0.2)))
 
+
+    # Start values to ensure one iteration
+    it = 0
+    misfit_reduction = 1e8
+    misfit_new = 2
     res = Depth()
 
     while misfit_reduction > -0.1:
@@ -114,10 +117,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                             stf=stf,
                                             tensor=tensor)
         st_data_work = st_data.copy()
-        st_data_work, st_synth_corr, \
-            st_synth_grf6_corr, CC, dT, dA = correct_waveforms(st_data_work,
-                                                               st_synth,
-                                                               st_synth_grf6)
+        st_data_work, st_synth_corr, st_synth_grf6_corr, CC, dT, dA = \
+            correct_waveforms(st_data_work,
+                              st_synth,
+                              st_synth_grf6,
+                              allow_negative_CC=True) #(it==0))
 
         # len_win, arr_times = taper_before_arrival(st_data_work,
         #                                           st_synth_corr)
@@ -397,9 +401,9 @@ def shift_waveform(tr, dtshift):
     return tr_shift
 
 
-def calc_timeshift(st_a, st_b):
+def calc_timeshift(st_a, st_b, allow_negative_CC=False):
     """
-    dt_all = calc_timeshift(st_a, st_b)
+    dt_all, CC = calc_timeshift(st_a, st_b, allow_negative_CC)
 
     Calculate timeshift between two waveforms using the maximum of the
     cross-correlation function.
@@ -412,6 +416,9 @@ def calc_timeshift(st_a, st_b):
     st_b : obspy.Stream
         Stream that contains the traces to compare
 
+    allow_negative_CC : boolean
+        Pick the maximum of the absolute values of CC(t). Useful, if polarity
+        may be wrong.
 
     Returns
     -------
@@ -430,9 +437,17 @@ def calc_timeshift(st_a, st_b):
             tr_b = st_b.select(station=tr_a.stats.station,
                                location=tr_a.stats.location)[0]
             corr = signal.correlate(tr_a.data, tr_b.data)
-            dt = (np.argmax(corr) - tr_a.stats.npts + 1) * tr_a.stats.delta
-            CC = corr[np.argmax(corr)] / np.sqrt(np.sum(tr_a.data**2) *
-                                                 np.sum(tr_b.data**2))
+
+            if allow_negative_CC:
+                idx_CCmax = np.argmax(abs(corr))
+                CC = abs(corr[idx_CCmax])
+            else:
+                idx_CCmax = np.argmax(corr)
+                CC = corr[idx_CCmax]
+
+            dt = (idx_CCmax - tr_a.stats.npts + 1) * tr_a.stats.delta
+
+            CC /= np.sqrt(np.sum(tr_a.data**2) * np.sum(tr_b.data**2))
             # print('%s.%s: %4.1f sec, CC: %f' %
             #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
             dt_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dt
@@ -590,14 +605,18 @@ def calc_synthetic_from_grf6(st_synth_grf6, st_data, stf, tensor):
     return st_synth
 
 
-def correct_waveforms(st_data, st_synth, st_synth_grf6):
+def correct_waveforms(st_data, st_synth, st_synth_grf6,
+                      allow_negative_CC=False):
+
+    print('Allowing polarity reversal: ', allow_negative_CC)
+
     # Create working copies of streams
     st_data_work = st_data.copy()
     st_synth_work = st_synth.copy()
     st_synth_grf6_work = st_synth_grf6.copy()
 
     # Calculate time shift from combined synthetic waveforms
-    dt, CC = calc_timeshift(st_data_work, st_synth_work)
+    dt, CC = calc_timeshift(st_data_work, st_synth_work, allow_negative_CC)
 
     # Create new stream with time-shifted synthetic seismograms
     st_synth_shift = obspy.Stream()
