@@ -187,7 +187,7 @@ def invert_MT(st_data, st_grf6, stf=[1], outdir='focmec'):
 
     # Convolve with STF
     for tr in st_grf6_work:
-        tr.data = np.convolve(tr.data, stf, mode='same')
+        tr.data = np.convolve(tr.data, stf, mode='same')[0:tr.stats.npts]
 
     d, G = _create_matrix_MT_inversion(st_data, st_grf6_work)
 

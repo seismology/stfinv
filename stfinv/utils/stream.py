@@ -264,6 +264,7 @@ class Stream(obspy.Stream):
 
         for tr in self:
             tr_work = tr.copy()
+            tr_work.resample(1. / db.info.dt)
             distance, azi, bazi = gps2dist_azimuth(tr.stats.sac['stla'],
                                                    tr.stats.sac['stlo'],
                                                    origin.latitude,
@@ -321,6 +322,14 @@ class Stream(obspy.Stream):
 
                         tr_synth.trim(starttime=travel_time_synth - pre_offset,
                                       endtime=travel_time_synth + post_offset)
+
+                        lendiff = tr_synth.stats.npts - tr_work.stats.npts
+                        if lendiff == -1:
+                            tr_synth.data = np.r_[tr_synth.data, 0]
+                        elif lendiff == 1:
+                            tr_synth.data = tr_synth.data[0:-1]
+                        elif abs(lendiff) > 1:
+                            raise IndexError('Difference in length too big')
 
                     # Convert Green's functions from seiscomp format to one per
                     # MT component, which is used later in the inversion.
@@ -432,7 +441,8 @@ class Stream(obspy.Stream):
 
                 if abs(tr_a.stats.npts - tr_b.stats.npts) > 1:
                     raise ValueError('Lengths of traces differ by more than \
-                                    one sample')
+                                     one sample, %d vs %d samples' %
+                                     (tr_a.stats.npts, tr_b.stats.npts))
                 elif abs(tr_a.stats.npts - tr_b.stats.npts) == 1:
                     len_common = min(tr_a.stats.npts, tr_b.stats.npts)
                 else:
@@ -546,7 +556,7 @@ class Stream(obspy.Stream):
                                    location=loc,
                                    channel='MRP')[0].data * tensor.m_rp)
             # Convolve with STF
-            tr.data = np.convolve(tr.data, stf, mode='same')
+            tr.data = np.convolve(tr.data, stf, mode='same')[0:tr.stats.npts]
 
         return st_synth
 

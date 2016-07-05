@@ -29,7 +29,6 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
               pre_offset=15,
               post_offset=36.1,
               work_dir='testinversion'):
-    from obspy.signal.interpolation import lanczos_interpolation
 
     if not os.path.exists(work_dir):
         os.mkdir(work_dir)
@@ -66,13 +65,13 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                                phase_list=phase_list)
 
     # Convolve st_data with Instaseis stf to remove its effect.
-    sliprate = lanczos_interpolation(db.info.slip, old_start=0,
-                                     old_dt=db.info.dt, new_dt=0.1,
-                                     new_start=0,
-                                     new_npts=st_data[0].stats.npts,
-                                     a=8)
-    for tr in st_data:
-        tr.data = np.convolve(tr.data, sliprate)[0:tr.stats.npts]
+    # sliprate = lanczos_interpolation(db.info.slip, old_start=0,
+    #                                  old_dt=db.info.dt, new_dt=0.1,
+    #                                  new_start=0,
+    #                                  new_npts=st_data[0].stats.npts,
+    #                                  a=8)
+    # for tr in st_data:
+    #     tr.data = np.convolve(tr.data, db.info.slip)[0:tr.stats.npts]
 
     # Initialize with MT from event file
     try:
@@ -87,13 +86,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     # Scaling is such that the 5.7 Virginia event takes 5 seconds
     duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0
     print('Assuming duration of %8.1f sec' % duration)
-    stf = signal.gaussian(duration * 3, duration / 2 / db.info.dt)
-    # stf = np.zeros(128)
-    # stf[1] = 1.
+    stf = signal.gaussian(duration * 3, duration / 4 / db.info.dt)
 
     # Define butterworth filter at database corner frequency
-    b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
-                                (1. / 0.2)))
+    # b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
+    #                            (1. / 0.2)))
 
     # Start values to ensure one iteration
     it = 0
@@ -160,16 +157,16 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
             # Do the STF inversion on downsampled data to avoid high frequency
             # noise that has to be removed later
-            st_data_stf.decimate(factor=5)
+            # st_data_stf.decimate(factor=5)
             st_synth_stf = st_synth_corr.filter_bad_waveforms(CC, CClim)
-            st_synth_stf.decimate(factor=5)
+            # st_synth_stf.decimate(factor=5)
             stf = invert_STF(st_data_stf, st_synth_stf)
 
-            stf = lanczos_interpolation(stf,
-                                        old_start=0, old_dt=0.5,
-                                        new_start=0, new_dt=0.1,
-                                        new_npts=128,
-                                        a=8)
+            # stf = lanczos_interpolation(stf,
+            #                             old_start=0, old_dt=0.5,
+            #                             new_start=0, new_dt=0.1,
+            #                             new_npts=128,
+            #                             a=8)
 
         tensor = invert_MT(st_data_work.filter_bad_waveforms(CC, CClim),
                            st_synth_grf6_corr.filter_bad_waveforms(CC, CClim),
@@ -183,7 +180,8 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 def correct_waveforms(st_data, st_synth, st_synth_grf6,
                       allow_negative_CC=False):
 
-    print('Allowing polarity reversal: ', allow_negative_CC)
+    if allow_negative_CC:
+        print('Allowing polarity reversal')
 
     # Create working copies of streams
     st_data_work = st_data.copy()
