@@ -123,8 +123,8 @@ def test_filter_bad_waveforms():
     st_filter = st.filter_bad_waveforms(CC=CC, CClim=0.6)
 
     npt.assert_equal(len(st_filter), 2)
-    npt.assert_string_equal(st_filter[0].stats.station, 'BBB')
-    npt.assert_string_equal(st_filter[1].stats.station, 'DDD')
+    npt.assert_string_equal(str(st_filter[0].stats.station), 'BBB')
+    npt.assert_string_equal(str(st_filter[1].stats.station), 'DDD')
 
 
 def test_get_station_coordinates():
@@ -279,12 +279,12 @@ def test_get_synthetics():
             npt.assert_equal(len(st_test), 1)
 
         for tr in st_syn[istat * 6:(istat + 1) * 6]:
-            npt.assert_string_equal(tr.stats.station,
-                                    st_data[istat].stats.station)
-            npt.assert_string_equal(tr.stats.location,
-                                    st_data[istat].stats.location)
-            npt.assert_string_equal(tr.stats.network,
-                                    st_data[istat].stats.network)
+            npt.assert_string_equal(str(tr.stats.station),
+                                    str(st_data[istat].stats.station))
+            npt.assert_string_equal(str(tr.stats.location),
+                                    str(st_data[istat].stats.location))
+            npt.assert_string_equal(str(tr.stats.network),
+                                    str(st_data[istat].stats.network))
 
             npt.assert_equal(tr.stats.npts, st_data[istat].stats.npts)
             npt.assert_allclose(tr.stats.delta, st_data[istat].stats.delta)
