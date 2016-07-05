@@ -45,18 +45,18 @@ for usage, and a DISCLAIMER OF ALL WARRANTIES.
 
 All trademarks referenced herein are property of their respective holders.
 
-Copyright (c) 2016 - Simon Stähler (mail@simonstaehler.com)
+Copyright (c) 2016 - Simon Staehler (mail@simonstaehler.com)
 """
 
 NAME = "stfinv"
-MAINTAINER = "Simon Stähler"
+MAINTAINER = "Simon Staehler"
 MAINTAINER_EMAIL = "mail@simonstaehler.com"
 DESCRIPTION = description
 LONG_DESCRIPTION = long_description
 URL = "http://github.com/seismology/stfinv"
 DOWNLOAD_URL = ""
 LICENSE = "GPLv3"
-AUTHOR = "Simon Stähler"
+AUTHOR = "Simon Staehler"
 AUTHOR_EMAIL = "mail@simonstaehler.com"
 PLATFORMS = "OS Independent"
 MAJOR = _version_major
