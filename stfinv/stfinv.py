@@ -8,7 +8,7 @@ from .utils.results import Results
 from .utils.depth import Depth
 from .utils.iteration import Iteration
 from .utils.inversion import invert_MT, invert_STF
-from .utils.stream import Stream
+from .utils.stream import read
 
 
 __all__ = ["inversion",
@@ -21,12 +21,6 @@ def calc_D_misfit(CCs):
         CC.append(1. - value)
 
     return np.mean(CC)
-
-
-def read(path):
-    stream = Stream()
-    stream += obspy.read(path)
-    return stream
 
 
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',

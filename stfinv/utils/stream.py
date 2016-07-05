@@ -65,7 +65,7 @@ class Stream(obspy.Stream):
         st_filtered = Stream()
         for tr in self:
             code = '%s.%s' % (tr.stats.station, tr.stats.location)
-            if CC[code] > CClim:
+            if CC[code] >= CClim:
                 st_filtered.append(tr)
         return st_filtered
 
@@ -311,9 +311,10 @@ class Stream(obspy.Stream):
                     st_synth += gf6_synth[0:6]
                 else:
                     # Data does not exist yet
-                    gf_synth = db.get_greens_function(distance,
-                                                      depth_in_m,
-                                                      dt=tr_work.stats.delta)
+                    gf_synth = Stream()
+                    gf_synth += db.get_greens_function(distance,
+                                                       depth_in_m,
+                                                       dt=tr_work.stats.delta)
                     for tr_synth in gf_synth:
                         tr_synth.stats['starttime'] = \
                             tr_synth.stats.starttime + float(origin.time)
@@ -392,8 +393,9 @@ class Stream(obspy.Stream):
                 CC /= np.sqrt(np.sum(tr_a.data**2) * np.sum(tr_b.data**2))
                 # print('%s.%s: %4.1f sec, CC: %f' %
                 #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
-                dt_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dt
-                CC_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = CC
+                code = '%s.%s' % (tr_a.stats.station, tr_a.stats.location)
+                dt_all[code] = dt
+                CC_all[code] = CC
             except IndexError:
                 print('Did not find %s' % (tr_a.stats.station))
         return dt_all, CC_all
@@ -417,8 +419,8 @@ class Stream(obspy.Stream):
         Returns
         -------
         dA_all : dict
-            Dictionary with entries station.location and the estimated amplitude
-            misfit.
+            Dictionary with entries station.location and the estimated
+            amplitude misfit.
 
         """
         dA_all = dict()
@@ -440,7 +442,8 @@ class Stream(obspy.Stream):
                                 tr_b.data[0:len_common])) / \
                     np.sum(tr_b.data ** 2)
 
-                dA_all['%s.%s' % (tr_a.stats.station, tr_a.stats.location)] = dA
+                code = '%s.%s' % (tr_a.stats.station, tr_a.stats.location)
+                dA_all[code] = dA
             except IndexError:
                 print('Did not find %s' % (tr_a.stats.station))
         return dA_all
@@ -510,7 +513,7 @@ class Stream(obspy.Stream):
             if not threshold:
                 threshold = max(abs(tr_synth.data)) * 1e-2
             arr_time = pick(tr_synth, threshold=threshold)
-            tr.taper_signal(t_begin=arr_time, t_end=arr_time + 30.0)
+            taper_signal(tr, t_begin=arr_time, t_end=arr_time + 30.0)
 
             len_win = max(len_win, 30.0)
             arr_times['%s.%s' % (tr.stats.station, tr.stats.location)] = \
@@ -546,6 +549,12 @@ class Stream(obspy.Stream):
             tr.data = np.convolve(tr.data, stf, mode='same')
 
         return st_synth
+
+
+def read(path):
+    stream = Stream()
+    stream += obspy.read(path)
+    return stream
 
 
 def load_cut_files(data_directory, grf6_directory, depth_in_m):
