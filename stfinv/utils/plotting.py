@@ -91,7 +91,6 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
     # Plot beach ball
     mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
           tensor.m_rt, tensor.m_rp, tensor.m_tp]
-    print(mt)
     b = beach(mt, width=50, linewidth=1, facecolor='r',
               xy=(10, 0.5), axes=ax2)
     ax2.add_collection(b)
