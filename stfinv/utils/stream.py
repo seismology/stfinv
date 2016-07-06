@@ -103,7 +103,7 @@ class Stream(obspy.Stream):
                         stats.channel,
                         stats.starttime,
                         stats.endtime])
-        inv = client.get_stations_bulk(bulk)
+            inv = client.get_stations_bulk(bulk)
 
         for tr in self:
             stats = tr.stats
@@ -259,6 +259,8 @@ class Stream(obspy.Stream):
                                                 grf6_directory=grf6_dir,
                                                 depth_in_m=depth_in_m)
 
+        npts_target = int((post_offset + pre_offset) / db.info.dt) + 1
+        print('NPTS_TARGET : %d ' % npts_target)
         st_data = Stream()
         st_synth = Stream()
 
@@ -290,14 +292,18 @@ class Stream(obspy.Stream):
                                             phase_list=phase_list)
                 travel_time_synth = origin.time + tt[0].time
 
-                # print('%6s, %8.3f degree, %8.3f sec\n' % (tr.stats.station,
-                #                                           distance,
-                #                                           travel_time))
-
                 # Trim data around P arrival time
                 tr_work.trim(starttime=travel_time_data - pre_offset,
                              endtime=travel_time_data + post_offset)
 
+                lendiff = tr_work.stats.npts - npts_target
+
+                if lendiff == -1:
+                    tr_work.data = np.r_[tr_work.data, 0]
+                elif lendiff == 1:
+                    tr_work.data = tr_work.data[0:-1]
+                elif abs(lendiff) > 1:
+                    raise IndexError('Difference in length too big')
                 st_data.append(tr_work)
 
                 # Get synthetics
@@ -323,7 +329,7 @@ class Stream(obspy.Stream):
                         tr_synth.trim(starttime=travel_time_synth - pre_offset,
                                       endtime=travel_time_synth + post_offset)
 
-                        lendiff = tr_synth.stats.npts - tr_work.stats.npts
+                        lendiff = tr_synth.stats.npts - npts_target
                         if lendiff == -1:
                             tr_synth.data = np.r_[tr_synth.data, 0]
                         elif lendiff == 1:
