@@ -13,11 +13,16 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 from obspy.imaging.beachball import beach
+from obspy.geodetics.base import locations2degrees
+import matplotlib.patheffects as PathEffects
+from matplotlib.colorbar import Colorbar
+from matplotlib.ticker import MaxNLocator
 import cartopy.crs as ccrs
 
 
 def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
-                   tensor, iteration=-1, misfit=0.0, outdir='./waveforms/'):
+                   origin, tensor, iteration=-1, misfit=0.0,
+                   outdir='./waveforms/'):
 
     if not os.path.exists(outdir):
         os.mkdir(outdir)
@@ -96,7 +101,7 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
     ax2.add_collection(b)
 
     # Plot Map
-    plot_map(st_synth, CC, -30, 50, fig=fig,
+    plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
              rect=[0.7, 0.4, 0.25, 0.30])
 
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
@@ -105,19 +110,21 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
 
 
 def plot_map(st_synth, values, central_longitude, central_latitude,
-             colormap='viridis', fig=None, rect=[1.0, 1.0, 1.0, 1.0]):
+             colormap='viridis', fig=None, rect=[0.0, 0.0, 1.0, 1.0]):
 
     # Create array of latitudes, longitudes, CC
     lats = []
     lons = []
     c = []
+    names = []
     for tr in st_synth:
         code = '%s.%s' % (tr.stats.station, tr.stats.location)
         lats.append(tr.stats.sac.stla)
         lons.append(tr.stats.sac.stlo)
         c.append(values[code])
+        names.append(code)
 
-    ax = add_ortho(lats=lats, lons=lons, color=c,
+    ax = add_ortho(lats=lats, lons=lons, color=c, text=None,
                    colormap=colormap, fig=fig, rect=rect,
                    central_longitude=central_longitude,
                    central_latitude=central_latitude)
@@ -125,7 +132,7 @@ def plot_map(st_synth, values, central_longitude, central_latitude,
     return ax
 
 
-def add_ortho(lats, lons, color, size=1e2, marker='o',
+def add_ortho(lats, lons, color, text=None, size=1e2, marker='o',
               colormap='viridis', fig=None,
               rect=[0.0, 0.0, 1.0, 1.0],
               central_longitude=8, central_latitude=50):
@@ -134,7 +141,12 @@ def add_ortho(lats, lons, color, size=1e2, marker='o',
 
     proj = ccrs.Orthographic(central_longitude=central_longitude,
                              central_latitude=central_latitude)
-    ax = fig.add_axes(rect, projection=proj)
+
+    ax = fig.add_axes([rect[0], rect[1], rect[2]*0.7, rect[3]],
+                      projection=proj)
+    cm_ax = fig.add_axes([rect[0] + rect[2]*0.85, rect[1] + rect[3]*0.1,
+                          rect[2]*0.05, rect[3]*0.8])
+    plt.sca(ax)
 
     # make the map global rather than have it zoom in to
     # the extents of any plotted data
@@ -144,7 +156,30 @@ def add_ortho(lats, lons, color, size=1e2, marker='o',
     ax.coastlines()
     ax.gridlines()
 
-    plt.scatter(lats, lons, s=size, c=color, marker=marker, cmap=colormap,
-                transform=ccrs.Geodetic())
+    scatter = ax.scatter(lons, lats, s=size, c=color, marker=marker,
+                         cmap=colormap, vmin=0, vmax=1,
+                         transform=ccrs.Geodetic())
+
+    locator = MaxNLocator(5)
+    cb = Colorbar(cm_ax, scatter, cmap=colormap,
+                  orientation='vertical',
+                  ticks=locator)
+    # Compat with old matplotlib versions.
+    if hasattr(cb, "update_ticks"):
+        cb.update_ticks()
+
+    if (text):
+        for lat, lon, text in zip(lats, lons, text):
+            # Avoid plotting invisible texts. They clutter at the origin
+            # otherwise
+            dist = locations2degrees(lat, lon,
+                                     central_latitude, central_longitude)
+            if (dist < 90):
+                plt.text(lon, lat, text, weight="heavy",
+                         transform=ccrs.Geodetic(),
+                         color="k", zorder=100,
+                         path_effects=[
+                             PathEffects.withStroke(linewidth=3,
+                                                    foreground="white")])
 
     return ax

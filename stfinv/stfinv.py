@@ -48,13 +48,14 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     # Read event file
     cat = obspy.read_events(event_file)
     event = cat[0]
+    origin = event.origins[0]
 
     db = instaseis.open_db(db_path)
 
     # Calculate synthetics in GRF6 format with instaseis and cut
     # time windows around the phase arrivals (out of data and GRF6 synthetics.
     # The cuts are saved on disk for the next time.
-    st_data, st_synth_grf6 = st.get_synthetics(event.origins[0],
+    st_data, st_synth_grf6 = st.get_synthetics(origin,
                                                db,
                                                depth_in_m=depth_in_m,
                                                out_dir=work_dir,
@@ -63,6 +64,8 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                                dist_min=dist_min,
                                                dist_max=dist_max,
                                                phase_list=phase_list)
+
+    st_data.filter(type='lowpass', freq=1./db.info.dt/4)
 
     # Convolve st_data with Instaseis stf to remove its effect.
     # sliprate = lanczos_interpolation(db.info.slip, old_start=0,
@@ -89,8 +92,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     stf = signal.gaussian(duration * 3, duration / 4 / db.info.dt)
 
     # Define butterworth filter at database corner frequency
-    # b, a = signal.butter(6, Wn=((1. / (db.info.dt * 2.)) /
-    #                            (1. / 0.2)))
+    # b, a = signal.butter(6, Wn=0.5)
 
     # Start values to ensure one iteration
     it = 0
@@ -127,6 +129,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         misfit_new = calc_D_misfit(CC)
         misfit_reduction = (misfit_old - misfit_new) / misfit_old
         res_it = Iteration(tensor=tensor,
+                           origin=origin,
                            stf=stf,
                            CC=CC,
                            dA=dA,

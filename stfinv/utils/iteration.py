@@ -12,10 +12,11 @@ from .plotting import plot_waveforms
 
 
 class Iteration():
-    def __init__(self, tensor, stf, CC, dA, dT, arr_times, CClim, it, depth,
-                 misfit, st_data, st_synth):
+    def __init__(self, tensor, origin, stf, CC, dA, dT, arr_times, CClim, it,
+                 depth, misfit, st_data, st_synth):
 
         self.tensor = tensor
+        self.origin = origin
         self.stf = stf
         self.CC = CC
         self.dA = dA
@@ -48,5 +49,6 @@ class Iteration():
                        misfit=self.misfit,
                        iteration=self.it,
                        stf=self.stf,
+                       origin=self.origin,
                        depth=self.depth,
                        tensor=self.tensor)
