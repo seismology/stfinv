@@ -157,7 +157,7 @@ def add_ortho(lats, lons, color, text=None, size=1e2, marker='o',
     ax.gridlines()
 
     scatter = ax.scatter(lons, lats, s=size, c=color, marker=marker,
-                         cmap=colormap, vmin=0, vmax=1,
+                         cmap=colormap, vmin=0, vmax=1, zorder=10,
                          transform=ccrs.Geodetic())
 
     locator = MaxNLocator(5)
