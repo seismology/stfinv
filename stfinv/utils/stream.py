@@ -93,8 +93,8 @@ class Stream(obspy.Stream):
             stats = tr.stats
 
             # Correct Instaseis Streams
-            if (stats.location == ''):
-                stats.location = u'00'
+            if stats.location in ['', 'SE']:
+                stats.location = u''
                 stats.channel = u'BH%s' % (stats.channel[2])
 
             bulk.append([stats.network,
@@ -103,7 +103,7 @@ class Stream(obspy.Stream):
                         stats.channel,
                         stats.starttime,
                         stats.endtime])
-            inv = client.get_stations_bulk(bulk)
+        inv = client.get_stations_bulk(bulk)
 
         for tr in self:
             stats = tr.stats
@@ -264,7 +264,7 @@ class Stream(obspy.Stream):
         st_data = Stream()
         st_synth = Stream()
 
-        for tr in self:
+        for tr in self.select(channel='BHZ'):
             tr_work = tr.copy()
             tr_work.resample(1. / db.info.dt)
             distance, azi, bazi = gps2dist_azimuth(tr.stats.sac['stla'],
