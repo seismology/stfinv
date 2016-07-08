@@ -66,9 +66,9 @@ def test_calc_synthetic_from_grf6():
                                        dt=0.1)
 
     # Convert to GRF6 format
-    st_grf6 = gf_synth.seiscomp_to_moment_tensor(azimuth=azi,
-                                                 scalmom=1,
-                                                 stats=st_ref[0].stats)
+    st_grf6 = gf_synth.seiscomp_to_grf6(azimuth=azi,
+                                        scalmom=1,
+                                        stats=st_ref[0].stats)
 
     st_synth = st_grf6.calc_synthetic_from_grf6(st_ref,
                                                 tensor=tensor,
@@ -139,11 +139,11 @@ def test_get_station_coordinates():
                           station=stats.station,
                           location=stats.location,
                           channel=stats.channel)[0][0]
-        npt.assert_equal(stat.longitude, stats.sac['stlo'])
-        npt.assert_equal(stat.latitude, stats.sac['stla'])
+        npt.assert_allclose(stat.longitude, stats.sac['stlo'], atol=1e-2)
+        npt.assert_allclose(stat.latitude, stats.sac['stla'], atol=1e-2)
 
 
-def test_seiscomp_to_moment_tensor():
+def test_seiscomp_to_grf6():
     # import matplotlib.pyplot as plt
 
     db = instaseis.open_db('syngine://prem_a_20s')
@@ -172,8 +172,8 @@ def test_seiscomp_to_moment_tensor():
                                        source_depth_in_m=evdepth,
                                        dt=0.1)
 
-    st_grf6 = gf_synth.seiscomp_to_moment_tensor(azimuth=azi,
-                                                 scalmom=1)
+    st_grf6 = gf_synth.seiscomp_to_grf6(azimuth=azi,
+                                        scalmom=1)
 
     rec = instaseis.Receiver(latitude=reclat, longitude=reclon)
 
@@ -299,29 +299,30 @@ def test_shift_waveform():
                           header=dict(station='AAA',
                                       location='00',
                                       delta=0.1))
-    st_test = Stream(tr_test)
-
-    # Shift backwards by 0.2 s
-    dt = dict()
-    dt['AAA.00'] = 0.2
-    st_test.shift_waveform(dt)
-    data_ref = [0, 0, 0, 0, 1, 2, 1]
-
-    npt.assert_allclose(st_test[0].data, data_ref, rtol=1e-5, atol=1e-3,
-                        err_msg='Shifted data not as expected')
-
-    # Shift forwards by 0.2 s
+    st_ref = Stream(tr_test)
     tr_test = obspy.Trace(np.array(data_test),
-                          header=dict(station='AAA',
+                          header=dict(station='BBB',
                                       location='00',
                                       delta=0.1))
-    st_test = Stream(tr_test)
+    st_ref.append(tr_test)
 
-    dt['AAA.00'] = -0.2
-    st_test.shift_waveform(dt)
-    data_ref = [1, 2, 1, 0, 0, 0, 0]
+    dt = dict()
+    dt['AAA.00'] = 0.2
+    dt['BBB.00'] = -0.1
+    st_shift = st_ref.copy()
+    st_shift.shift_waveform(dt)
 
-    npt.assert_allclose(st_test[0].data, data_ref, rtol=1e-5, atol=1e-3,
+    # Shift backwards by 0.2 s
+    data_ref = [0, 0, 0, 0, 1, 2, 1]
+    npt.assert_allclose(st_shift.select(station='AAA')[0].data,
+                        data_ref,
+                        rtol=1e-5, atol=1e-3,
+                        err_msg='Shifted data not as expected')
+
+    # Shift forwards by 0.1 s
+    data_ref = [0, 1, 2, 1, 0, 0, 0]
+    npt.assert_allclose(st_shift.select(station='BBB')[0].data,
+                        data_ref, rtol=1e-5, atol=1e-3,
                         err_msg='Shifted data not as expected')
 
 
@@ -350,6 +351,18 @@ def test_calc_timeshift():
     npt.assert_allclose(dt_res['AAA.00'], dt['AAA.00'], rtol=1e-5)
     npt.assert_allclose(dt_res['BBB.00'], dt['BBB.00'], rtol=1e-5)
 
+    # Shift backwards by 0.2 s, reverse order of traces in stream
+    dt = dict()
+    dt['AAA.00'] = 0.2
+    dt['BBB.00'] = -0.1
+    st_shift = st_ref.copy()
+    st_shift.shift_waveform(dt)
+    st_shift.sort(keys=['station'], reverse=True)
+    dt_res, CC = st_shift.calc_timeshift(st_ref)
+
+    npt.assert_allclose(dt_res['AAA.00'], dt['AAA.00'], rtol=1e-5)
+    npt.assert_allclose(dt_res['BBB.00'], dt['BBB.00'], rtol=1e-5)
+
 
 def test_calc_amplitude_misfit():
 
@@ -369,6 +382,19 @@ def test_calc_amplitude_misfit():
 
     st_mult.select(station='AAA')[0].data *= 2
     st_mult.select(station='BBB')[0].data *= 0.5
+
+    dA = st_mult.calc_amplitude_misfit(st_ref)
+
+    npt.assert_almost_equal(dA['AAA.00'], 2.0, decimal=5)
+    npt.assert_almost_equal(dA['BBB.00'], 0.5, decimal=5)
+
+    # Check when order is mixed up
+    st_mult = st_ref.copy()
+
+    st_mult.select(station='AAA')[0].data *= 2
+    st_mult.select(station='BBB')[0].data *= 0.5
+
+    st_mult.sort(keys=['station'], reverse=True)
 
     dA = st_mult.calc_amplitude_misfit(st_ref)
 
