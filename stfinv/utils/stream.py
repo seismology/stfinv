@@ -88,22 +88,23 @@ class Stream(obspy.Stream):
 
         """
         client = Client(client_base_url)
-        bulk = []
+        # bulk = []
+        network = ['II']
+        inv = client.get_stations(network='II')
         for tr in self:
             stats = tr.stats
+
+            # Get all networks of which stations are contained in self.
+            # This is more stable than requesting a bulk of the stations
+            # in self.
+            if stats.network not in network:
+                network.append(stats.network)
+                inv += client.get_stations(network=stats.network)
 
             # Correct Instaseis Streams
             if stats.location in ['', 'SE']:
                 stats.location = u''
                 stats.channel = u'BH%s' % (stats.channel[2])
-
-            bulk.append([stats.network,
-                        stats.station,
-                        stats.location,
-                        stats.channel,
-                        stats.starttime,
-                        stats.endtime])
-        inv = client.get_stations_bulk(bulk)
 
         for tr in self:
             stats = tr.stats
@@ -119,8 +120,9 @@ class Stream(obspy.Stream):
                     print('Could not find station %s.%s.%s.%s' %
                           (stats.network, stats.station, stats.location,
                            stats.channel))
+                    raise IndexError
 
-    def seiscomp_to_moment_tensor(self, azimuth, stats=None, scalmom=1.0):
+    def seiscomp_to_grf6(self, azimuth, stats=None, scalmom=1.0):
         """
         seiscomp_to_moment_tensor(st_in, azimuth, scalmom=1.0)
 
@@ -304,6 +306,11 @@ class Stream(obspy.Stream):
                     tr_work.data = tr_work.data[0:-1]
                 elif abs(lendiff) > 1:
                     raise IndexError('Difference in length too big')
+
+                # Write (back)-azimuth into stats. Used later for plotting
+                tr_work.stats['azi'] = azi
+                tr_work.stats['bazi'] = bazi
+
                 st_data.append(tr_work)
 
                 # Get synthetics
@@ -340,7 +347,7 @@ class Stream(obspy.Stream):
                     # Convert Green's functions from seiscomp format to one per
                     # MT component, which is used later in the inversion.
                     # Convert to GRF6 format
-                    st_synth += gf_synth.seiscomp_to_moment_tensor(
+                    st_synth += gf_synth.seiscomp_to_grf6(
                         azimuth=azi,
                         scalmom=1,
                         stats=tr_work.stats)

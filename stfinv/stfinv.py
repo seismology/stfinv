@@ -65,7 +65,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                                                dist_max=dist_max,
                                                phase_list=phase_list)
 
-    st_data.filter(type='lowpass', freq=1./db.info.dt/4)
+    st_data.filter(type='lowpass', freq=1. / db.info.dt / 4)
 
     # Convolve st_data with Instaseis stf to remove its effect.
     # sliprate = lanczos_interpolation(db.info.slip, old_start=0,

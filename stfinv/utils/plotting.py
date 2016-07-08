@@ -33,7 +33,9 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
     nrows = int(np.sqrt(nplots)) + 1
     ncols = nplots / nrows + 1
     iplot = 0
-    for tr in st_data:
+    st_data_plot = st_data.copy()
+    st_data_plot.sort(keys=['azi'])
+    for tr in st_data_plot:
 
         irow = np.mod(iplot, nrows)
         icol = np.int(iplot / nrows)
@@ -142,10 +144,11 @@ def add_ortho(lats, lons, color, text=None, size=1e2, marker='o',
     proj = ccrs.Orthographic(central_longitude=central_longitude,
                              central_latitude=central_latitude)
 
-    ax = fig.add_axes([rect[0], rect[1], rect[2]*0.7, rect[3]],
+    ax = fig.add_axes([rect[0], rect[1],
+                       rect[2] * 0.7, rect[3]],
                       projection=proj)
-    cm_ax = fig.add_axes([rect[0] + rect[2]*0.85, rect[1] + rect[3]*0.1,
-                          rect[2]*0.05, rect[3]*0.8])
+    cm_ax = fig.add_axes([rect[0] + rect[2] * 0.85, rect[1] + rect[3] * 0.1,
+                          rect[2] * 0.05, rect[3] * 0.8])
     plt.sca(ax)
 
     # make the map global rather than have it zoom in to
