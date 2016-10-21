@@ -126,6 +126,11 @@ def _create_matrix_MT_inversion(st_data, st_grf6):
         stations in st_data and st_grf6.
 
     """
+
+    if not st_grf6[0].stats.npts == st_data[0].stats.npts:
+        raise IndexError('Len of data (%d) and synthetics (%d) is not equal)' %
+                         (st_grf6[0].stats.npts, st_data[0].stats.npts))
+
     # Create matrix for MT inversion:
     npts = st_grf6[0].stats.npts
 

@@ -51,6 +51,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     origin = event.origins[0]
 
     db = instaseis.open_db(db_path)
+    # print(db)
 
     # Calculate synthetics in GRF6 format with instaseis and cut
     # time windows around the phase arrivals (out of data and GRF6 synthetics.
@@ -87,9 +88,9 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     # Init with Gaussian STF with a length T:
     # log10 T propto 0.5*Magnitude
     # Scaling is such that the 5.7 Virginia event takes 5 seconds
-    duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0
+    duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0 / 2
     print('Assuming duration of %8.1f sec' % duration)
-    stf = signal.gaussian(duration * 3, duration / 4 / db.info.dt)
+    stf = signal.gaussian(duration * 2, duration / 4 / db.info.dt)
 
     # Define butterworth filter at database corner frequency
     # b, a = signal.butter(6, Wn=0.5)
@@ -105,20 +106,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         st_synth = st_synth_grf6.calc_synthetic_from_grf6(st_data,
                                                           stf=stf,
                                                           tensor=tensor)
-        st_data_work = st_data.copy()
         st_data_work, st_synth_corr, st_synth_grf6_corr, CC, dT, dA = \
-            correct_waveforms(st_data_work,
+            correct_waveforms(st_data,
                               st_synth,
                               st_synth_grf6,
-                              allow_negative_CC=True)  # (it==0))
-
-        # st_data_work.write('data.mseed', format='MSEED')
-        # st_synth_grf6_corr.write('grf6.mseed', format='MSEED')
-
-        # len_win, arr_times = taper_before_arrival(st_data_work,
-        #                                           st_synth_corr)
-        # len_win, arr_times = taper_before_arrival(st_synth_grf6_corr,
-        #                                           st_synth_corr)
+                              allow_negative_CC=False)  # (it == 0))
 
         arr_times = st_synth_corr.pick()
 
@@ -158,18 +150,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         if it > 0:
             st_data_stf = st_data_work.filter_bad_waveforms(CC, CClim)
 
-            # Do the STF inversion on downsampled data to avoid high frequency
-            # noise that has to be removed later
-            # st_data_stf.decimate(factor=5)
             st_synth_stf = st_synth_corr.filter_bad_waveforms(CC, CClim)
-            # st_synth_stf.decimate(factor=5)
             stf = invert_STF(st_data_stf, st_synth_stf)
 
-            # stf = lanczos_interpolation(stf,
-            #                             old_start=0, old_dt=0.5,
-            #                             new_start=0, new_dt=0.1,
-            #                             new_npts=128,
-            #                             a=8)
+        # print(st_data_work)
+        # print(st_synth_grf6_corr)
 
         tensor = invert_MT(st_data_work.filter_bad_waveforms(CC, CClim),
                            st_synth_grf6_corr.filter_bad_waveforms(CC, CClim),
@@ -201,6 +186,9 @@ def correct_waveforms(st_data, st_synth, st_synth_grf6,
     st_synth_grf6_work.shift_waveform(dt)
 
     # Calculate amplitude misfit
+    # print('in correct_waveforms')
+    # print('st_data_work: ', st_data_work)
+    # print('st_synth_work:', st_synth_work)
     dA = st_data_work.calc_amplitude_misfit(st_synth_work)
 
     # Fill stream with amplitude-corrected synthetic seismograms
@@ -258,7 +246,7 @@ def main():
                                 dist_min=30.0, dist_max=100.0, CClim=0.6,
                                 phase_list=('P', 'Pdiff'),
                                 pre_offset=15,
-                                post_offset=36.1,
+                                post_offset=60.0,  # 36.1,
                                 work_dir='.'))
     best_depth = result.get_best_depth()
     print(best_depth.get_best_solution())

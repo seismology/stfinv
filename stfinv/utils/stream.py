@@ -10,6 +10,7 @@
 # -------------------------------------------------------------------
 
 import obspy
+import instaseis
 from obspy.clients.fdsn import Client
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth
@@ -122,73 +123,6 @@ class Stream(obspy.Stream):
                            stats.channel))
                     raise IndexError
 
-    def seiscomp_to_grf6(self, azimuth, stats=None, scalmom=1.0):
-        """
-        seiscomp_to_moment_tensor(st_in, azimuth, scalmom=1.0)
-
-        Convert Green's functions from the SeisComp convention to the format
-        of one Green's function per Moment Tensor component.
-
-        Parameters
-        ----------
-        st_in : obspy.Stream
-            Stream as returned by instaseis.database.greens_function()
-
-        azimuth : float
-            Azimuth of the station as seen from the earthquake in degrees.
-
-        scalmom : float, optional
-            Scalar moment of the earthquake. Default is one.
-
-        Returns
-        -------
-        m_xx, m_yy, m_zz, m_xy, m_xz, m_yz : array
-            Moment tensor-component-specific Green's functions for a station
-            at the given azimuth.
-
-        """
-
-        azimuth *= np.pi / 180.
-        m_tt = (self.select(channel='ZSS')[0].data *
-                np.cos(2 * azimuth) / 2.) +           \
-            self.select(channel='ZEP')[0].data / 3. - \
-            self.select(channel='ZDD')[0].data / 6.
-        m_tt *= scalmom
-
-        m_pp = - (self.select(channel='ZSS')[0].data *
-                  np.cos(2 * azimuth) / 2.) +          \
-            self.select(channel='ZEP')[0].data / 3. - \
-            self.select(channel='ZDD')[0].data / 6.
-        m_pp *= scalmom
-
-        m_rr = self.select(channel='ZEP')[0].data / 3. + \
-            self.select(channel='ZDD')[0].data / 3.
-        m_rr *= scalmom
-
-        m_tp = self.select(channel='ZSS')[0].data * np.sin(2 * azimuth)
-        m_tp *= scalmom
-
-        m_rt = - self.select(channel='ZDS')[0].data * np.cos(azimuth)
-        m_rt *= scalmom
-
-        m_rp = self.select(channel='ZDS')[0].data * np.sin(azimuth)
-        m_rp *= scalmom
-
-        data = [m_tt, m_pp, m_rr, -m_tp, m_rt, m_rp]
-        channels = ['MTT', 'MPP', 'MRR', 'MTP', 'MRT', 'MRP']
-
-        st_grf6 = Stream()
-        for icomp in range(0, 6):
-            if stats:
-                tr_new = obspy.Trace(data=data[icomp],
-                                     header=stats)
-            else:
-                tr_new = obspy.Trace(data=data[icomp])
-            tr_new.stats['channel'] = channels[icomp]
-            st_grf6.append(tr_new)
-
-        return st_grf6
-
     def get_synthetics(self, origin, db, out_dir='inversion',
                        depth_in_m=-1,
                        pre_offset=5.6, post_offset=20.0,
@@ -257,15 +191,15 @@ class Stream(obspy.Stream):
         if not os.path.exists(grf6_dir):
             os.mkdir(grf6_dir)
 
-        st_data, st_synth_grf6 = load_cut_files(data_directory=data_dir,
+        st_data, st_grf6_cache = load_cut_files(data_directory=data_dir,
                                                 grf6_directory=grf6_dir,
                                                 depth_in_m=depth_in_m)
 
         npts_target = int((post_offset + pre_offset) / db.info.dt) + 1
-        print('NPTS_TARGET : %d ' % npts_target)
         st_data = Stream()
         st_synth = Stream()
 
+        # Loop over all stations in real data stream
         for tr in self.select(channel='BHZ'):
             tr_work = tr.copy()
             tr_work.resample(1. / db.info.dt)
@@ -286,26 +220,12 @@ class Stream(obspy.Stream):
                                             phase_list=phase_list)
                 travel_time_data = origin.time + tt[0].time
 
-                # Calculate travel times for the synthetics
-                # Here we use the inversion depth.
-                tt = model.get_travel_times(distance_in_degree=distance,
-                                            source_depth_in_km=depth_in_m *
-                                            1e-3,
-                                            phase_list=phase_list)
-                travel_time_synth = origin.time + tt[0].time
-
                 # Trim data around P arrival time
                 tr_work.trim(starttime=travel_time_data - pre_offset,
                              endtime=travel_time_data + post_offset)
 
-                lendiff = tr_work.stats.npts - npts_target
-
-                if lendiff == -1:
-                    tr_work.data = np.r_[tr_work.data, 0]
-                elif lendiff == 1:
-                    tr_work.data = tr_work.data[0:-1]
-                elif abs(lendiff) > 1:
-                    raise IndexError('Difference in length too big')
+                # Correct trace length
+                _correct_length_trace(tr_work, npts_target)
 
                 # Write (back)-azimuth into stats. Used later for plotting
                 tr_work.stats['azi'] = azi
@@ -315,42 +235,44 @@ class Stream(obspy.Stream):
 
                 # Get synthetics
                 # See what exists in the stream that we loaded earlier
-                gf6_synth = st_synth_grf6.select(station=tr.stats.station,
-                                                 network=tr.stats.network,
-                                                 location=tr.stats.location)
+                st_grf6_cache_stat = st_grf6_cache.select(
+                                         station=tr.stats.station,
+                                         network=tr.stats.network,
+                                         location=tr.stats.location)
 
-                if gf6_synth:
-                    # len(gf6_synth == 6):
-                    # Data already exists
-                    st_synth += gf6_synth[0:6]
+                if st_grf6_cache_stat:
+                    # Greens functions already exists
+                    # print('Greens functions for %s.%s.%s already existed' %
+                    #       (tr.stats.network, tr.stats.station,
+                    #        tr.stats.location))
+                    st_synth += st_grf6_cache_stat
                 else:
-                    # Data does not exist yet
-                    gf_synth = Stream()
-                    gf_synth += db.get_greens_function(distance,
-                                                       depth_in_m,
-                                                       dt=tr_work.stats.delta)
-                    for tr_synth in gf_synth:
-                        tr_synth.stats['starttime'] = \
-                            tr_synth.stats.starttime + float(origin.time)
+                    # Greens functions do not exist yet
+                    # print('Greens functions for %s.%s.%s must be caluclated' %
+                    #       (tr.stats.network, tr.stats.station,
+                    #        tr.stats.location))
 
-                        tr_synth.trim(starttime=travel_time_synth - pre_offset,
-                                      endtime=travel_time_synth + post_offset)
+                    # Calculate travel times for the synthetics
+                    # Here we use the inversion depth.
+                    tt = model.get_travel_times(distance_in_degree=distance,
+                                                source_depth_in_km=depth_in_m *
+                                                1e-3,
+                                                phase_list=phase_list)
+                    travel_time_synth = origin.time + tt[0].time
 
-                        lendiff = tr_synth.stats.npts - npts_target
-                        if lendiff == -1:
-                            tr_synth.data = np.r_[tr_synth.data, 0]
-                        elif lendiff == 1:
-                            tr_synth.data = tr_synth.data[0:-1]
-                        elif abs(lendiff) > 1:
-                            raise IndexError('Difference in length too big')
+                    st_grf6 = get_grf6(db, rec_lat=tr.stats.sac['stla'],
+                                       rec_lon=tr.stats.sac['stlo'],
+                                       origin=origin,
+                                       depth_in_m=depth_in_m,
+                                       dt=tr_work.stats.delta,
+                                       stats=tr_work.stats)
 
-                    # Convert Green's functions from seiscomp format to one per
-                    # MT component, which is used later in the inversion.
-                    # Convert to GRF6 format
-                    st_synth += gf_synth.seiscomp_to_grf6(
-                        azimuth=azi,
-                        scalmom=1,
-                        stats=tr_work.stats)
+                    st_grf6.trim(starttime=travel_time_synth - pre_offset,
+                                 endtime=travel_time_synth + post_offset)
+
+                    st_grf6.correct_length(npts_target)
+
+                    st_synth += st_grf6
 
         for tr in st_synth:
             tr.write(os.path.join(grf6_dir, 'synth_%06dkm_%s.SAC' %
@@ -411,7 +333,6 @@ class Stream(obspy.Stream):
                     CC = corr[idx_CCmax]
 
                 dt = (idx_CCmax - tr_a.stats.npts + 1) * tr_a.stats.delta
-
                 CC /= np.sqrt(np.sum(tr_a.data**2) * np.sum(tr_b.data**2))
                 # print('%s.%s: %4.1f sec, CC: %f' %
                 #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
@@ -545,33 +466,128 @@ class Stream(obspy.Stream):
         return len_win, arr_times
 
     def calc_synthetic_from_grf6(self, st_data, stf, tensor):
-        st_synth = st_data.copy()
+        st_synth = Stream()
 
-        for tr in st_synth:
+        for tr in st_data:
             stat = tr.stats.station
             loc = tr.stats.location
-            tr.data = (self.select(station=stat,
-                                   location=loc,
-                                   channel='MTT')[0].data * tensor.m_tt +
-                       self.select(station=stat,
-                                   location=loc,
-                                   channel='MPP')[0].data * tensor.m_pp +
-                       self.select(station=stat,
-                                   location=loc,
-                                   channel='MRR')[0].data * tensor.m_rr +
-                       self.select(station=stat,
-                                   location=loc,
-                                   channel='MTP')[0].data * tensor.m_tp +
-                       self.select(station=stat,
-                                   location=loc,
-                                   channel='MRT')[0].data * tensor.m_rt +
-                       self.select(station=stat,
-                                   location=loc,
-                                   channel='MRP')[0].data * tensor.m_rp)
+            data = (self.select(station=stat,
+                                location=loc,
+                                channel='MTT')[0].data * tensor.m_tt +
+                    self.select(station=stat,
+                                location=loc,
+                                channel='MPP')[0].data * tensor.m_pp +
+                    self.select(station=stat,
+                                location=loc,
+                                channel='MRR')[0].data * tensor.m_rr +
+                    self.select(station=stat,
+                                location=loc,
+                                channel='MTP')[0].data * tensor.m_tp +
+                    self.select(station=stat,
+                                location=loc,
+                                channel='MRT')[0].data * tensor.m_rt +
+                    self.select(station=stat,
+                                location=loc,
+                                channel='MRP')[0].data * tensor.m_rp)
+            tr_synth = obspy.Trace(data=data, header=tr.stats)
+
             # Convolve with STF
-            tr.data = np.convolve(tr.data, stf, mode='same')[0:tr.stats.npts]
+            tr_synth.data = np.convolve(tr_synth.data, stf,
+                                        mode='same')[0:tr.stats.npts]
+            st_synth += tr_synth
 
         return st_synth
+
+    def correct_length(self, npts_target):
+        for tr in self:
+            _correct_length_trace(tr, npts_target)
+
+
+def _correct_length_trace(trace, npts_target):
+    lendiff = trace.stats.npts - npts_target
+
+    if lendiff == -1:
+        trace.data = np.r_[trace.data, 0]
+    elif lendiff == 1:
+        trace.data = trace.data[0:-1]
+    elif abs(lendiff) > 1:
+        raise IndexError('Difference in length too bigi %d' % lendiff)
+
+
+def get_grf6(db, origin, rec_lat, rec_lon, depth_in_m, dt, stats):
+
+    src_lat = origin.latitude
+    src_lon = origin.longitude
+    time = origin.time
+
+    # print('Get smgr src (%6.2f, %6.2f), rec (%6.2f, %6.2f), depth: %d' %
+    #       (src_lat, src_lon, rec_lat, rec_lon, depth_in_m))
+    st = Stream()
+    rec = instaseis.Receiver(latitude=rec_lat, longitude=rec_lon,
+                             station=stats.station,
+                             network=stats.network,
+                             location=stats.location)
+    # MTT
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=1.0, m_pp=0.0, m_rr=0.0,
+                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+
+    tr.stats['channel'] = 'MTT'
+    st += tr
+
+    # MPP
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=0.0, m_pp=1.0, m_rr=0.0,
+                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
+
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+    tr.stats['channel'] = 'MPP'
+    st += tr
+
+    # MRR
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=0.0, m_pp=0.0, m_rr=1.0,
+                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
+
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+    tr.stats['channel'] = 'MRR'
+    st += tr
+
+    # MTP
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                           m_tp=1.0, m_rt=0.0, m_rp=0.0)
+
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+    tr.stats['channel'] = 'MTP'
+    st += tr
+
+    # MRT
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                           m_tp=0.0, m_rt=1.0, m_rp=0.0)
+
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+    tr.stats['channel'] = 'MRT'
+    st += tr
+
+    # MRP
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                           m_tp=0.0, m_rt=0.0, m_rp=1.0)
+
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
+    tr.stats['channel'] = 'MRP'
+    st += tr
+
+    return st
 
 
 def read(path):
