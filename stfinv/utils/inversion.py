@@ -13,6 +13,7 @@ import numpy as np
 import obspy
 from scipy.optimize import lsq_linear
 from scipy.linalg import toeplitz
+import matplotlib.pyplot as plt
 
 
 def _create_Toeplitz(data):
@@ -71,18 +72,18 @@ def _create_matrix_STF_inversion(st_data, st_synth):
 
 
 def invert_STF(st_data, st_synth, method='bound_lsq'):
-    # print('Using %d stations for STF inversion' % len(st_data))
-    # for tr in st_data:
-    #     fig = plt.figure()
-    #     ax = fig.add_subplot(111)
-    #     ax.plot(tr.data, label='data')
-    #     ax.plot(st_synth.select(station=tr.stats.station,
-    #                             network=tr.stats.network,
-    #                             location=tr.stats.location)[0].data,
-    #             label='synth')
-    #     ax.legend()
-    #     fig.savefig('%s.png' % tr.stats.station)
-    #     plt.close(fig)
+    print('Using %d stations for STF inversion' % len(st_data))
+    for tr in st_data:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(tr.data, label='data')
+        ax.plot(st_synth.select(station=tr.stats.station,
+                                network=tr.stats.network,
+                                location=tr.stats.location)[0].data,
+                label='synth')
+        ax.legend()
+        fig.savefig('%s.png' % tr.stats.station)
+        plt.close(fig)
 
     # st_data.write('data.mseed', format='mseed')
     # st_synth.write('synth.mseed', format='mseed')

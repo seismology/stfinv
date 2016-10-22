@@ -68,14 +68,6 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
     st_data.filter(type='lowpass', freq=1. / db.info.dt / 4)
 
-    # Convolve st_data with Instaseis stf to remove its effect.
-    # sliprate = lanczos_interpolation(db.info.slip, old_start=0,
-    #                                  old_dt=db.info.dt, new_dt=0.1,
-    #                                  new_start=0,
-    #                                  new_npts=st_data[0].stats.npts,
-    #                                  a=8)
-    # for tr in st_data:
-    #     tr.data = np.convolve(tr.data, db.info.slip)[0:tr.stats.npts]
 
     # Initialize with MT from event file
     try:
@@ -104,7 +96,6 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     while misfit_reduction > -0.1:
         # Get synthetics for current source solution
         st_synth = st_synth_grf6.calc_synthetic_from_grf6(st_data,
-                                                          stf=stf,
                                                           tensor=tensor)
         st_data_work, st_synth_corr, st_synth_grf6_corr, CC, dT, dA = \
             correct_waveforms(st_data,

@@ -465,7 +465,7 @@ class Stream(obspy.Stream):
 
         return len_win, arr_times
 
-    def calc_synthetic_from_grf6(self, st_data, stf, tensor):
+    def calc_synthetic_from_grf6(self, st_data, tensor):
         st_synth = Stream()
 
         for tr in st_data:
@@ -491,9 +491,9 @@ class Stream(obspy.Stream):
                                 channel='MRP')[0].data * tensor.m_rp)
             tr_synth = obspy.Trace(data=data, header=tr.stats)
 
-            # Convolve with STF
-            tr_synth.data = np.convolve(tr_synth.data, stf,
-                                        mode='same')[0:tr.stats.npts]
+            # # Convolve with STF
+            # tr_synth.data = np.convolve(tr_synth.data, stf,
+            #                             mode='same')[0:tr.stats.npts]
             st_synth += tr_synth
 
         return st_synth
@@ -514,12 +514,27 @@ def _correct_length_trace(trace, npts_target):
         raise IndexError('Difference in length too bigi %d' % lendiff)
 
 
-def get_grf6(db, origin, rec_lat, rec_lon, depth_in_m, dt, stats):
+def get_smgr(db, origin, rec, depth_in_m, channel, dt,
+             m_tt=0.0, m_pp=0.0, m_rr=0.0,
+             m_tp=0.0, m_rt=0.0, m_rp=0.0):
 
     src_lat = origin.latitude
     src_lon = origin.longitude
     time = origin.time
+    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
+                           depth_in_m=depth_in_m, origin_time=time,
+                           m_tt=m_tt, m_pp=m_pp, m_rr=m_rr,
+                           m_tp=m_tp, m_rt=m_rt, m_rp=m_rp)
 
+    src.set_sliprate_dirac(dt, nsamp=100)
+    tr = db.get_seismograms(src, rec, dt=dt, components='Z',
+                            remove_source_shift=False,
+                            reconvolve_stf=True)[0]
+    tr.stats['channel'] = channel
+    return tr
+
+
+def get_grf6(db, origin, rec_lat, rec_lon, depth_in_m, dt, stats):
     # print('Get smgr src (%6.2f, %6.2f), rec (%6.2f, %6.2f), depth: %d' %
     #       (src_lat, src_lon, rec_lat, rec_lon, depth_in_m))
     st = Stream()
@@ -528,64 +543,34 @@ def get_grf6(db, origin, rec_lat, rec_lon, depth_in_m, dt, stats):
                              network=stats.network,
                              location=stats.location)
     # MTT
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=1.0, m_pp=0.0, m_rr=0.0,
-                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-
-    tr.stats['channel'] = 'MTT'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MTT', dt=dt,
+                   m_tt=1.0, m_pp=0.0, m_rr=0.0,
+                   m_tp=0.0, m_rt=0.0, m_rp=0.0)
 
     # MPP
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=0.0, m_pp=1.0, m_rr=0.0,
-                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
-
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-    tr.stats['channel'] = 'MPP'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MPP', dt=dt,
+                   m_tt=0.0, m_pp=1.0, m_rr=0.0,
+                   m_tp=0.0, m_rt=0.0, m_rp=0.0)
 
     # MRR
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=0.0, m_pp=0.0, m_rr=1.0,
-                           m_tp=0.0, m_rt=0.0, m_rp=0.0)
-
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-    tr.stats['channel'] = 'MRR'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MRR', dt=dt,
+                   m_tt=0.0, m_pp=0.0, m_rr=1.0,
+                   m_tp=0.0, m_rt=0.0, m_rp=0.0)
 
     # MTP
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
-                           m_tp=1.0, m_rt=0.0, m_rp=0.0)
-
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-    tr.stats['channel'] = 'MTP'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MTP', dt=dt,
+                   m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                   m_tp=1.0, m_rt=0.0, m_rp=0.0)
 
     # MRT
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
-                           m_tp=0.0, m_rt=1.0, m_rp=0.0)
-
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-    tr.stats['channel'] = 'MRT'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MRT', dt=dt,
+                   m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                   m_tp=0.0, m_rt=1.0, m_rp=0.0)
 
     # MRP
-    src = instaseis.Source(latitude=src_lat, longitude=src_lon,
-                           depth_in_m=depth_in_m, origin_time=time,
-                           m_tt=0.0, m_pp=0.0, m_rr=0.0,
-                           m_tp=0.0, m_rt=0.0, m_rp=1.0)
-
-    tr = db.get_seismograms(src, rec, dt=dt, components='Z')[0]
-    tr.stats['channel'] = 'MRP'
-    st += tr
+    st += get_smgr(db, origin, rec, depth_in_m, channel='MRP', dt=dt,
+                   m_tt=0.0, m_pp=0.0, m_rr=0.0,
+                   m_tp=0.0, m_rt=0.0, m_rp=1.0)
 
     return st
 
