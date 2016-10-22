@@ -172,3 +172,22 @@ def test_invert_STF():
     stf = np.r_[stf[halflen:], stf[0:halflen]]
 
     npt.assert_allclose(stf, stf_ref, rtol=1e-7, atol=1e-10)
+
+
+def test_invert_STF_dampened():
+    from stfinv.utils.inversion import invert_STF
+    tr = obspy.Trace(data=np.array([0., 0., 0., 0., 1., 2., 1., 0., 0.]))
+    st_synth = obspy.Stream(tr)
+    tr = obspy.Trace(data=np.array([0., 0., 1., 3., 2., 1., 0., 0., 0.]))
+    st_synth.append(tr)
+
+    stf_ref = np.array([0., 0., 1., 1., 0., 1., 1., 0., 0.])
+
+    tr = obspy.Trace(data=np.convolve(st_synth[0].data, stf_ref, 'same'))
+    st_data = obspy.Stream(tr)
+    tr = obspy.Trace(data=np.convolve(st_synth[1].data, stf_ref, 'same'))
+    st_data.append(tr)
+
+    stf = invert_STF(st_data, st_synth, method='dampened', eps=1e-4)
+
+    npt.assert_allclose(stf, stf_ref, rtol=1e-2, atol=1e-10)

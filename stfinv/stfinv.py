@@ -68,7 +68,6 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
     st_data.filter(type='lowpass', freq=1. / db.info.dt / 4)
 
-
     # Initialize with MT from event file
     try:
         tensor = cat[0].focal_mechanisms[0].moment_tensor.tensor
@@ -80,7 +79,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     # Init with Gaussian STF with a length T:
     # log10 T propto 0.5*Magnitude
     # Scaling is such that the 5.7 Virginia event takes 5 seconds
-    duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0 / 2
+    if len(cat[0].magnitudes) > 0:
+        duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0 / 2
+    else:
+        duration = 10.0
+
     print('Assuming duration of %8.1f sec' % duration)
     stf = signal.gaussian(duration * 2, duration / 4 / db.info.dt)
 
@@ -93,7 +96,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     misfit_new = 2
     res = Depth()
 
-    while misfit_reduction > -0.1:
+    while True:
         # Get synthetics for current source solution
         st_synth = st_synth_grf6.calc_synthetic_from_grf6(st_data,
                                                           tensor=tensor)
@@ -135,17 +138,19 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
         # Stop the inversion, if no station can be used
         if (nstat_used == 0):
+            print('All stations have CC below limit (%4.2f), stopping' % CClim)
+            break
+        elif misfit_reduction <= 0.01:
+            print('Inversion seems to have converged')
             break
 
         # Omit the STF inversion in the first round.
         if it > 0:
-            st_data_stf = st_data_work.filter_bad_waveforms(CC, CClim)
+            st_data_filtCC = st_data_work.filter_bad_waveforms(CC, CClim)
 
-            st_synth_stf = st_synth_corr.filter_bad_waveforms(CC, CClim)
-            stf = invert_STF(st_data_stf, st_synth_stf)
-
-        # print(st_data_work)
-        # print(st_synth_grf6_corr)
+            st_synth_filtCC = st_synth_corr.filter_bad_waveforms(CC, CClim)
+            stf = invert_STF(st_data_filtCC, st_synth_filtCC,
+                             method='dampened', eps=1e-1)
 
         tensor = invert_MT(st_data_work.filter_bad_waveforms(CC, CClim),
                            st_synth_grf6_corr.filter_bad_waveforms(CC, CClim),
@@ -223,6 +228,10 @@ def main():
     parser.add_argument('--depth_step', help=helptext,
                         default=1.0, type=float)
 
+    helptext = 'Mimimum value of CC in which Seismogram is used for inversion'
+    parser.add_argument('--CClim', help=helptext,
+                        default=0.6, type=float)
+
     # Parse input arguments
     args = parser.parse_args()
 
@@ -234,7 +243,8 @@ def main():
         result.append(inversion(args.data_path, args.event_file,
                                 db_path=args.db_path,
                                 depth_in_m=depth,
-                                dist_min=30.0, dist_max=100.0, CClim=0.6,
+                                dist_min=30.0, dist_max=100.0,
+                                CClim=args.CClim,
                                 phase_list=('P', 'Pdiff'),
                                 pre_offset=15,
                                 post_offset=60.0,  # 36.1,

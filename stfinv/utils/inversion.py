@@ -45,7 +45,7 @@ def _create_Toeplitz_mult(stream):
     return G
 
 
-def _create_matrix_STF_inversion(st_data, st_synth):
+def _create_matrix_STF_inversion(st_data, st_synth, eps=0.2):
     # Create matrix for STF inversion:
     npts = st_synth[0].stats.npts
     nstat = len(st_data)
@@ -71,8 +71,8 @@ def _create_matrix_STF_inversion(st_data, st_synth):
     return d, G
 
 
-def invert_STF(st_data, st_synth, method='bound_lsq'):
-    print('Using %d stations for STF inversion' % len(st_data))
+def invert_STF(st_data, st_synth, method='bound_lsq', eps=1e-3):
+    # print('Using %d stations for STF inversion' % len(st_data))
     for tr in st_data:
         fig = plt.figure()
         ax = fig.add_subplot(111)
@@ -93,8 +93,18 @@ def invert_STF(st_data, st_synth, method='bound_lsq'):
     if method == 'bound_lsq':
         m = lsq_linear(G, d, (-0.1, 1.1))
         stf = np.r_[m.x[(len(m.x) - 1) / 2:], m.x[0:(len(m.x) - 1) / 2]]
+
     elif method == 'lsq':
         stf, residual, rank, s = np.linalg.lstsq(G, d)
+
+    elif method == 'dampened':
+        # J from eq.3 in Sigloch (2006) to dampen later part of STFs
+        GTG = np.matmul(G.T, G)
+        diagGmean = np.mean(np.diag(GTG))
+        J = np.diag(np.linspace(0, diagGmean, G.shape[1]))
+        Ginv = np.matmul(np.linalg.inv(GTG + eps * J), G.T)
+        stf = np.matmul(Ginv, d)
+
     else:
         raise ValueError('method %s unknown' % method)
 
