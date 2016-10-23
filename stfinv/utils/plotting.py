@@ -95,23 +95,26 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
 
     ax.legend((l_s, l_d, l_g), ('Synthetic', 'data', 'Green''s fct'))
     ax.set_xlim(0, ncols * 1.2)
+    ax.set_ylim(-1.5, nrows * 1.5)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
     if (iteration >= 0):
         ax.set_title('Waveform fits, depth: %d m, it: %d, misfit: %9.3e' %
                      (depth, iteration, misfit))
 
     # Plot STF
-    yvals = np.r_[stf[(len(stf) - 1) / 2:],
-                  stf[0:(len(stf) - 1) / 2:-1]]
+    # yvals = np.r_[stf[(len(stf) - 1) / 2:],
+    #               stf[0:(len(stf) - 1) / 2:-1]]
+    yvals = stf[len(stf)/4:]
     xvals = tr.stats.delta * np.arange(0, len(yvals))
 
-    left, bottom, width, height = [0.75, 0.4, 0.14, 0.18]
+    left, bottom, width, height = [0.75, 0.55, 0.14, 0.18]
     ax2 = fig.add_axes([left, bottom, width, height])
     ax2.plot(xvals, yvals)
     ax2.plot([0, 1000], [0, 0], '--')
     ax2.set_ylim((-0.2, 1.1))
-    ax2.set_xlim((0.0, len(yvals)))
-    #ax2.set_xticks([])
+    ax2.set_xlim((0.0, xvals[-1]))
     ax2.set_xlabel('time / seconds')
     ax2.set_yticks([])
 
@@ -123,15 +126,16 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
     ax2.add_collection(b)
 
     # Plot Map
-    plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
-             rect=[0.75, 0.1, 0.25, 0.30])
+    ax3 = plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
+                   CClim=CClim,
+                   rect=[0.75, 0.15, 0.14, 0.25], colormap='plasma')
 
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
     fig.savefig(outfile, format='png')
     plt.close(fig)
 
 
-def plot_map(st_synth, values, central_longitude, central_latitude,
+def plot_map(st_synth, values, central_longitude, central_latitude, CClim,
              colormap='viridis', fig=None, rect=[0.0, 0.0, 1.0, 1.0]):
 
     # Create array of latitudes, longitudes, CC
@@ -146,7 +150,8 @@ def plot_map(st_synth, values, central_longitude, central_latitude,
         c.append(values[code])
         names.append(code)
 
-    ax = add_ortho(lats=lats, lons=lons, color=c, text=None,
+    ax = add_ortho(lats=lats, lons=lons, colors=c, CClim=0.5,
+                   text=None, marker=['o', 'd'],
                    colormap=colormap, fig=fig, rect=rect,
                    central_longitude=central_longitude,
                    central_latitude=central_latitude)
@@ -154,21 +159,31 @@ def plot_map(st_synth, values, central_longitude, central_latitude,
     return ax
 
 
-def add_ortho(lats, lons, color, text=None, size=1e2, marker='o',
+def add_ortho(lats, lons, colors, CClim,
+              central_longitude, central_latitude,
+              text=None, size=50, marker=['o', 'd'],
               colormap='viridis', fig=None,
-              rect=[0.0, 0.0, 1.0, 1.0],
-              central_longitude=8, central_latitude=50):
+              rect=[0.0, 0.0, 1.0, 1.0]):
     if not fig:
         fig = plt.figure()
 
     proj = ccrs.Orthographic(central_longitude=central_longitude,
                              central_latitude=central_latitude)
 
-    ax = fig.add_axes([rect[0], rect[1],
-                       rect[2] * 0.7, rect[3]],
+    # left, bottom, width, height
+    ax = fig.add_axes([rect[0],
+                       rect[1] + rect[3] * 0.15,
+                       rect[2],
+                       rect[3] * 0.85],
                       projection=proj)
-    cm_ax = fig.add_axes([rect[0] + rect[2] * 0.85, rect[1] + rect[3] * 0.1,
-                          rect[2] * 0.05, rect[3] * 0.8])
+    cm_ax = fig.add_axes([rect[0],
+                          rect[1],
+                          rect[2],
+                          rect[3] * 0.1])
+    # cm_ax = fig.add_axes([rect[0] + rect[2] * 0.85,
+    #                       rect[1] + rect[3] * 0.1,
+    #                       rect[2] * 0.05,
+    #                       rect[3] * 0.8])
     plt.sca(ax)
 
     # make the map global rather than have it zoom in to
@@ -179,17 +194,42 @@ def add_ortho(lats, lons, color, text=None, size=1e2, marker='o',
     ax.coastlines()
     ax.gridlines()
 
-    scatter = ax.scatter(lons, lats, s=size, c=color, marker=marker,
+    lats_mark1 = []
+    lons_mark1 = []
+    colors_mark1 = []
+    lats_mark2 = []
+    lons_mark2 = []
+    colors_mark2 = []
+
+    for lon, lat, color in zip(lons, lats, colors):
+        if color > CClim:
+            lats_mark1.append(lat)
+            lons_mark1.append(lon)
+            colors_mark1.append(color)
+        else:
+            lats_mark2.append(lat)
+            lons_mark2.append(lon)
+            colors_mark2.append(color)
+
+    scatter = ax.scatter(lons_mark1, lats_mark1, s=size, c=colors_mark1,
+                         marker=marker[0],
+                         cmap=colormap, vmin=0, vmax=1, zorder=10,
+                         transform=ccrs.Geodetic())
+    scatter = ax.scatter(lons_mark2, lats_mark2, s=size, c=colors_mark2,
+                         marker=marker[1],
                          cmap=colormap, vmin=0, vmax=1, zorder=10,
                          transform=ccrs.Geodetic())
 
     locator = MaxNLocator(5)
     cb = Colorbar(cm_ax, scatter, cmap=colormap,
-                  orientation='vertical',
+                  orientation='horizontal',
                   ticks=locator)
     # Compat with old matplotlib versions.
     if hasattr(cb, "update_ticks"):
         cb.update_ticks()
+
+    ev = ax.plot(central_longitude, central_latitude, color='red', marker='*',
+                 markersize=np.sqrt(size))
 
     if (text):
         for lat, lon, text in zip(lats, lons, text):

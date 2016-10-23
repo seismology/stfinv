@@ -82,7 +82,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     if len(cat[0].magnitudes) > 0:
         duration = 10 ** (0.5 * (cat[0].magnitudes[0].mag / 5.7)) * 5.0 / 2
     else:
-        duration = 10.0
+        duration = 5.0
 
     print('Assuming duration of %8.1f sec' % duration)
     stf = signal.gaussian(duration * 2, duration / 4 / db.info.dt)
@@ -100,11 +100,17 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         # Get synthetics for current source solution
         st_synth = st_synth_grf6.calc_synthetic_from_grf6(st_data,
                                                           tensor=tensor)
+
+        if it == 0:
+            offset = 0.0
+        else:
+            offset = -5.0
         st_data_work, st_synth_corr, st_synth_grf6_corr, CC, dT, dA = \
             correct_waveforms(st_data,
                               st_synth,
                               st_synth_grf6,
-                              allow_negative_CC=False)  # (it == 0))
+                              allow_negative_CC=False,
+                              offset=offset)  # (it == 0))
 
         arr_times = st_synth_corr.pick()
 
@@ -162,7 +168,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
 
 def correct_waveforms(st_data, st_synth, st_synth_grf6,
-                      allow_negative_CC=False):
+                      allow_negative_CC=False, offset=0.0):
 
     if allow_negative_CC:
         print('Allowing polarity reversal')
@@ -173,7 +179,9 @@ def correct_waveforms(st_data, st_synth, st_synth_grf6,
     st_synth_grf6_work = st_synth_grf6.copy()
 
     # Calculate time shift from combined synthetic waveforms
-    dt, CC = st_data_work.calc_timeshift(st_synth_work, allow_negative_CC)
+    dt, CC = st_data_work.calc_timeshift(st_synth_work,
+                                         allow_negative_CC,
+                                         offset=0.0)
 
     # Create new stream with time-shifted synthetic seismograms
     st_synth_work.shift_waveform(dt)

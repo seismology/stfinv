@@ -288,7 +288,7 @@ class Stream(obspy.Stream):
 
         return st_data, st_synth
 
-    def calc_timeshift(self, st_b, allow_negative_CC=False):
+    def calc_timeshift(self, st_b, allow_negative_CC=False, offset=0.0):
         """
         dt_all, CC = calc_timeshift(self, st_b, allow_negative_CC)
 
@@ -337,7 +337,7 @@ class Stream(obspy.Stream):
                 # print('%s.%s: %4.1f sec, CC: %f' %
                 #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
                 code = '%s.%s' % (tr_a.stats.station, tr_a.stats.location)
-                dt_all[code] = dt
+                dt_all[code] = dt + offset
                 CC_all[code] = CC
             except IndexError:
                 print('Did not find %s' % (tr_a.stats.station))
