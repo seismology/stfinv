@@ -140,7 +140,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         if (nstat_used == 0):
             print('All stations have CC below limit (%4.2f), stopping' % CClim)
             break
-        elif misfit_reduction <= 0.01:
+        elif misfit_reduction <= 0.01 and it > 1:
             print('Inversion seems to have converged')
             break
 
