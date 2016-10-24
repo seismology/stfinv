@@ -16,6 +16,7 @@ from obspy.imaging.beachball import beach
 from obspy.geodetics.base import locations2degrees
 import matplotlib.patheffects as PathEffects
 from matplotlib.colorbar import Colorbar
+from matplotlib.cm import get_cmap
 from matplotlib.ticker import MaxNLocator
 import cartopy.crs as ccrs
 
@@ -28,7 +29,21 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
         os.mkdir(outdir)
 
     fig = plt.figure(figsize=(15, 10))
+
+    # Axis for the waveforms
     ax = fig.add_subplot(111)
+
+    # Axis for the Source Time Function
+    left, bottom, width, height = [0.75, 0.455, 0.14, 0.18]
+    ax_stf = fig.add_axes([left, bottom, width, height])
+
+    # Axis for the Beachball
+    left, bottom, width, height = [0.75, 0.65, 0.14, 0.14]
+    ax_bb = fig.add_axes([left, bottom, width, height])
+
+    # Rectangle for the global map plot. Axis is created later
+    rect_stf = [0.75, 0.155, 0.14, 0.25]
+
     nplots = len(st_data)
     nrows = int(np.sqrt(nplots)) + 1
     ncols = nplots / nrows + 1
@@ -51,6 +66,15 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
         else:
             ls = 'dotted'
 
+        # Plot data
+        yvals = tr.data / normfac
+        xvals = np.linspace(0, 0.8, num=len(yvals))
+        l_d, = ax.plot(xvals + xoffset,
+                       yvals + yoffset,
+                       color='k',
+                       linestyle=ls,
+                       linewidth=2.0)
+
         # Plot Green's function
         yvals = st_synth.select(station=tr.stats.station)[0].data / normfac
         xvals = np.linspace(0, 0.8, num=len(yvals))
@@ -58,7 +82,7 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
                        yvals + yoffset,
                        color='grey',
                        linestyle=ls,
-                       linewidth=2)
+                       linewidth=1)
 
         # Convolve with STF and plot synthetics
         yvals = np.convolve(st_synth.select(station=tr.stats.station)[0].data,
@@ -67,15 +91,6 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
         l_s, = ax.plot(xvals + xoffset,
                        yvals + yoffset,
                        color='r',
-                       linestyle=ls,
-                       linewidth=1.5)
-
-        # Plot data
-        yvals = tr.data / normfac
-        xvals = np.linspace(0, 0.8, num=len(yvals))
-        l_d, = ax.plot(xvals + xoffset,
-                       yvals + yoffset,
-                       color='k',
                        linestyle=ls,
                        linewidth=1.5)
 
@@ -93,7 +108,7 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
 
         iplot += 1
 
-    ax.legend((l_s, l_d, l_g), ('Synthetic', 'data', 'Green''s fct'))
+    ax.legend((l_s, l_d, l_g), ('synthetic', 'data', 'Green''s fct'))
     ax.set_xlim(0, ncols * 1.2)
     ax.set_ylim(-1.5, nrows * 1.5)
     ax.set_xticks([])
@@ -104,31 +119,35 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
                      (depth, iteration, misfit))
 
     # Plot STF
-    # yvals = np.r_[stf[(len(stf) - 1) / 2:],
-    #               stf[0:(len(stf) - 1) / 2:-1]]
     yvals = stf[len(stf)/4:]
-    xvals = tr.stats.delta * np.arange(0, len(yvals))
+    xoffset = _dict_mean(dT) - len(stf)/4 * tr.stats.delta
+    xvals = tr.stats.delta * np.arange(0, len(yvals)) + xoffset
 
-    left, bottom, width, height = [0.75, 0.55, 0.14, 0.18]
-    ax2 = fig.add_axes([left, bottom, width, height])
-    ax2.plot(xvals, yvals)
-    ax2.plot([0, 1000], [0, 0], '--')
-    ax2.set_ylim((-0.2, 1.1))
-    ax2.set_xlim((0.0, xvals[-1]))
-    ax2.set_xlabel('time / seconds')
-    ax2.set_yticks([])
+    ax_stf.plot(xvals, yvals)
+    ax_stf.hlines(0, xmin=xvals[0], xmax=xvals[-1], linestyles='--',
+                  color='darkgrey')
+    ax_stf.set_ylim((-0.3, 1.1))
+    ax_stf.set_xlim((xvals[0], xvals[-1]))
+    ax_stf.set_xlabel('time / seconds')
+    ax_stf.set_yticks([0])
+    ax_stf.set_ylabel('Source Time Function')
 
     # Plot beach ball
     mt = [tensor.m_rr, tensor.m_tt, tensor.m_pp,
           tensor.m_rt, tensor.m_rp, tensor.m_tp]
-    b = beach(mt, width=50, linewidth=1, facecolor='r',
-              xy=(xvals[-1]*0.5, 0.5), axes=ax2)
-    ax2.add_collection(b)
+    b = beach(mt, width=120, linewidth=1, facecolor='r',
+              xy=(0, 0), axes=ax_bb)
+    ax_bb.add_collection(b)
+    ax_bb.set_xlim((-0.1, 0.1))
+    ax_bb.set_ylim((-0.1, 0.1))
+    ax_bb.set_xticks([])
+    ax_bb.set_yticks([])
+    ax_bb.axis('off')
 
     # Plot Map
-    ax3 = plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
-                   CClim=CClim,
-                   rect=[0.75, 0.15, 0.14, 0.25], colormap='plasma')
+    ax_map = plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
+                      CClim=CClim,
+                      rect=rect_stf, colormap='plasma')
 
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
     fig.savefig(outfile, format='png')
@@ -172,18 +191,14 @@ def add_ortho(lats, lons, colors, CClim,
 
     # left, bottom, width, height
     ax = fig.add_axes([rect[0],
-                       rect[1] + rect[3] * 0.15,
+                       rect[1] + rect[3] * 0.12,
                        rect[2],
                        rect[3] * 0.85],
                       projection=proj)
     cm_ax = fig.add_axes([rect[0],
                           rect[1],
                           rect[2],
-                          rect[3] * 0.1])
-    # cm_ax = fig.add_axes([rect[0] + rect[2] * 0.85,
-    #                       rect[1] + rect[3] * 0.1,
-    #                       rect[2] * 0.05,
-    #                       rect[3] * 0.8])
+                          rect[3] * 0.08])
     plt.sca(ax)
 
     # make the map global rather than have it zoom in to
@@ -201,6 +216,9 @@ def add_ortho(lats, lons, colors, CClim,
     lons_mark2 = []
     colors_mark2 = []
 
+    cmap = get_cmap(colormap)
+    cmap.set_under('grey')
+
     for lon, lat, color in zip(lons, lats, colors):
         if color > CClim:
             lats_mark1.append(lat)
@@ -213,17 +231,20 @@ def add_ortho(lats, lons, colors, CClim,
 
     scatter = ax.scatter(lons_mark1, lats_mark1, s=size, c=colors_mark1,
                          marker=marker[0],
-                         cmap=colormap, vmin=0, vmax=1, zorder=10,
+                         cmap=cmap, vmin=CClim, vmax=1, zorder=10,
                          transform=ccrs.Geodetic())
     scatter = ax.scatter(lons_mark2, lats_mark2, s=size, c=colors_mark2,
                          marker=marker[1],
-                         cmap=colormap, vmin=0, vmax=1, zorder=10,
+                         cmap=cmap, vmin=CClim, vmax=1, zorder=10,
                          transform=ccrs.Geodetic())
 
     locator = MaxNLocator(5)
-    cb = Colorbar(cm_ax, scatter, cmap=colormap,
+
+    cb = Colorbar(cm_ax, scatter, cmap=cmap,
                   orientation='horizontal',
-                  ticks=locator)
+                  ticks=locator,
+                  extend='min')
+    cb.set_label('CC')
     # Compat with old matplotlib versions.
     if hasattr(cb, "update_ticks"):
         cb.update_ticks()
@@ -246,3 +267,14 @@ def add_ortho(lats, lons, colors, CClim,
                                                     foreground="white")])
 
     return ax
+
+
+def _dict_mean(dictionary):
+    x = np.zeros(len(dictionary))
+    i = 0
+    for key, value in dictionary.items():
+        x[i] = value
+        i += 1
+
+    return np.mean(x)
+
