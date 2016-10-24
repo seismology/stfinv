@@ -19,6 +19,7 @@ import scipy.fftpack as fft
 import numpy as np
 import os
 import glob
+from tqdm import tqdm
 
 
 class Stream(obspy.Stream):
@@ -200,7 +201,8 @@ class Stream(obspy.Stream):
         st_synth = Stream()
 
         # Loop over all stations in real data stream
-        for tr in self.select(channel='BHZ'):
+        desc_str = 'Retrieving seismograms...'
+        for tr in tqdm(self.select(channel='BHZ'), desc=desc_str):
             tr_work = tr.copy()
             tr_work.resample(1. / db.info.dt)
             distance, azi, bazi = gps2dist_azimuth(tr.stats.sac['stla'],
