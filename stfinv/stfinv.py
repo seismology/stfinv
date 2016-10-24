@@ -4,7 +4,7 @@ import os
 import instaseis
 from scipy import signal
 import argparse
-from .utils.results import Results
+from .utils.results import Results, load_results
 from .utils.depth import Depth
 from .utils.iteration import Iteration
 from .utils.inversion import invert_MT, invert_STF
@@ -12,7 +12,8 @@ from .utils.stream import read
 
 
 __all__ = ["inversion",
-           "correct_waveforms"]
+           "correct_waveforms",
+           "load_results"]
 
 
 def calc_D_misfit(CCs):
@@ -150,8 +151,10 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                            st_data=st_data_work,
                            st_synth=st_synth_corr)
 
-        res_it.plot(outdir=os.path.join(work_dir,
-                                        'waveforms_%06dkm' % depth_in_m))
+        # Plot result of this iteration
+        plot_dir = os.path.join(work_dir,
+                                'waveforms_%06dkm' % (depth_in_m))
+        res_it.plot(outdir=plot_dir)
 
         res.append(res_it)
 
@@ -179,6 +182,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
                            stf=stf,
                            outdir=os.path.join(work_dir, 'focmec'))
         it += 1
+
+    save_fnam = os.path.join(work_dir,
+                             'waveforms_%06dkm' % depth_in_m,
+                             'result.npz')
+    res.save(fnam=save_fnam)
 
     return res
 
@@ -236,6 +244,10 @@ def main():
     parser.add_argument('--event_file', help=helptext,
                         default='../EVENTS-INFO/catalog.ml')
 
+    helptext = 'Path to Working Directory. Default is current directory.'
+    parser.add_argument('--work_dir', help=helptext,
+                        default='.')
+
     helptext = 'Path to Instaseis Database'
     parser.add_argument('--db_path', help=helptext,
                         default='syngine://ak135f_2s')
@@ -284,8 +296,27 @@ def main():
                                 post_offset=60.0,  # 36.1,
                                 tol=args.tol,
                                 misfit=args.misfit,
-                                work_dir='.'))
+                                work_dir=args.work_dir))
+
+    # Print some info about best solution
     best_depth = result.get_best_depth()
-    print(best_depth.get_best_solution())
-    print(best_depth.get_best_solution().misfit)
-    best_depth.get_best_solution().plot('./best_waveform')
+    best_solution = best_depth.get_best_solution()
+    t = best_solution.tensor
+
+    print('')
+    print('*******************************************************************')
+    print('Best-fitting result:')
+    print('  depth: %6.2f km' % best_solution.depth)
+    print('  iteration: %d' % best_solution.it)
+    print('  misfit: %5.3f' % best_solution.misfit)
+    print('  moment tensor: (%0.2e, %0.2e, %0.2e, %0.2e, %0.2e, %0.2e)' %
+          (t.m_tt, t.m_pp, t.m_rr, t.m_tp, t.m_rt, t.m_rp))
+    print('*******************************************************************')
+    print('')
+
+    plotdir_best = os.path.join(args.work_dir, 'best_waveform')
+    best_depth.get_best_solution().plot(plotdir_best)
+
+    save_fnam = os.path.join(args.work_dir,
+                             'result.npz')
+    result.save(fnam=save_fnam)
