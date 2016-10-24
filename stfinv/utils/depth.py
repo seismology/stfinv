@@ -76,8 +76,10 @@ class Depth():
         return self
 
     def get_best_solution(self):
-        it_best = self[1]
-        for it in self[1:]:
+        # Start from the 2nd iteration, which is the first one
+        # with an STF inversion
+        it_best = self[2]
+        for it in self[2:]:
             if it.misfit < it_best.misfit:
                 it_best = it
 

@@ -82,6 +82,15 @@ class Results():
 
         return depth_best
 
+    def get_best_solution(self):
+        depth_best = self[0]
+        for depth in self:
+            if depth.get_best_solution().misfit < \
+                    depth_best.get_best_solution().misfit:
+                depth_best = depth
+
+        return depth_best.get_best_solution()
+
     def save(self, fnam):
         """
         Save results to pickle on disk
