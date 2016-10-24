@@ -222,6 +222,12 @@ class Stream(obspy.Stream):
                                             phase_list=phase_list)
                 travel_time_data = origin.time + tt[0].time
 
+                # Check whether data contains desired time window
+                if tr_work.stats.starttime > travel_time_data - pre_offset or \
+                        tr_work.stats.endtime < travel_time_data + post_offset:
+                    # If so, ignore this station
+                    continue
+
                 # Trim data around P arrival time
                 tr_work.trim(starttime=travel_time_data - pre_offset,
                              endtime=travel_time_data + post_offset)
