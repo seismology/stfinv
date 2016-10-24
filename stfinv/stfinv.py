@@ -23,11 +23,23 @@ def calc_D_misfit(CCs):
     return np.mean(CC)
 
 
+def calc_L2_misfit(st_a, st_b):
+    L2 = 0.0
+    for tr_a in st_a:
+        tr_b = st_b.select(station=tr_a.stats.station,
+                           network=tr_a.stats.network,
+                           location=tr_a.stats.location)[0]
+        L2 += np.sum(tr_a.data - tr_b.data)**2
+        # L2 /= np.sum(tr_b.data)**2
+    return np.sqrt(L2)
+
+
 def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
               depth_in_m=-1, dist_min=30.0, dist_max=100.0, CClim=0.6,
               phase_list=('P', 'Pdiff'),
               pre_offset=15,
               post_offset=36.1,
+              tol=1e-3, misfit='CC',
               work_dir='testinversion'):
 
     if not os.path.exists(work_dir):
@@ -51,11 +63,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
     origin = event.origins[0]
 
     db = instaseis.open_db(db_path)
-    # print(db)
 
     # Calculate synthetics in GRF6 format with instaseis and cut
     # time windows around the phase arrivals (out of data and GRF6 synthetics.
     # The cuts are saved on disk for the next time.
+
     st_data, st_synth_grf6 = st.get_synthetics(origin,
                                                db,
                                                depth_in_m=depth_in_m,
@@ -118,7 +130,11 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
 
         # Calculate misfit reduction
         misfit_old = misfit_new
-        misfit_new = calc_D_misfit(CC)
+        if misfit == 'CC':
+            misfit_new = calc_D_misfit(CC)
+        elif misfit == 'L2':
+            misfit_new = calc_L2_misfit(st_data_work, st_synth_corr)
+
         misfit_reduction = (misfit_old - misfit_new) / misfit_old
         res_it = Iteration(tensor=tensor,
                            origin=origin,
@@ -146,7 +162,7 @@ def inversion(data_path, event_file, db_path='syngine://ak135f_2s',
         if (nstat_used == 0):
             print('All stations have CC below limit (%4.2f), stopping' % CClim)
             break
-        elif misfit_reduction <= 0.01 and it > 1:
+        elif misfit_reduction <= tol and it > 1:
             print('Inversion seems to have converged')
             break
 
@@ -240,6 +256,16 @@ def main():
     parser.add_argument('--CClim', help=helptext,
                         default=0.6, type=float)
 
+    helptext = 'Misfit critertion. Allowed values are CC and L2-norm'
+    parser.add_argument('--misfit', help=helptext,
+                        default='CC', type=str)
+
+    helptext = 'Tolerance parameter. The algorithm terminates if the ' + \
+        'relative change of the cost function is less than `tol`' + \
+        'on the last iteration.'
+    parser.add_argument('--tol', help=helptext,
+                        default=1e-3, type=float)
+
     # Parse input arguments
     args = parser.parse_args()
 
@@ -256,6 +282,8 @@ def main():
                                 phase_list=('P', 'Pdiff'),
                                 pre_offset=15,
                                 post_offset=60.0,  # 36.1,
+                                tol=args.tol,
+                                misfit=args.misfit,
                                 work_dir='.'))
     best_depth = result.get_best_depth()
     print(best_depth.get_best_solution())
