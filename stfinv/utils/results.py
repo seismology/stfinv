@@ -10,6 +10,7 @@
 # -------------------------------------------------------------------
 
 from stfinv.utils.depth import Depth
+import pickle
 
 
 class Results():
@@ -80,3 +81,24 @@ class Results():
                 depth_best = depth
 
         return depth_best
+
+    def save(self, fnam):
+        """
+        Save results to pickle on disk
+
+        Keywords:
+        :type  fnam: string
+        :param fnam: filename to save stack into
+        """
+        pickle.dump(self, open(fnam, 'wb'))
+
+
+def load_results(fnam):
+    """
+    Load Results object from pickle on disk
+
+    Keywords:
+    :type  fnam: string
+    :param fnam: filename from which to read stack
+    """
+    return pickle.load(open(fnam, 'rb'))

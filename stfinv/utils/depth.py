@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # -------------------------------------------------------------------
-#   Filename:  results.py
+#   Filename:  depth.py
 #   Purpose:   Provide class for results of one depth in stfinv
 #   Author:    Simon Staehler
 #   Email:     mail@simonstaehler.com
@@ -10,6 +10,7 @@
 # -------------------------------------------------------------------
 
 from stfinv.utils.iteration import Iteration
+import pickle
 
 
 class Depth():
@@ -75,9 +76,19 @@ class Depth():
         return self
 
     def get_best_solution(self):
-        it_best = self[0]
-        for it in self:
+        it_best = self[1]
+        for it in self[1:]:
             if it.misfit < it_best.misfit:
                 it_best = it
 
         return it_best
+
+    def save(self, fnam):
+        """
+        Save results to pickle on disk
+
+        Keywords:
+        :type  fnam: string
+        :param fnam: filename to save stack into
+        """
+        pickle.dump(self, open(fnam, 'wb'))
