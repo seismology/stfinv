@@ -86,7 +86,7 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
 
         # Convolve with STF and plot synthetics
         yvals = np.convolve(st_synth.select(station=tr.stats.station)[0].data,
-                            stf, mode='same')[0:tr.stats.npts] / normfac
+                            stf, mode='full')[0:tr.stats.npts] / normfac
         xvals = np.linspace(0, 0.8, num=len(yvals))
         l_s, = ax.plot(xvals + xoffset,
                        yvals + yoffset,
@@ -119,8 +119,8 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
                      (depth, iteration, misfit))
 
     # Plot STF
-    yvals = stf[len(stf)/4:]
-    xoffset = _dict_mean(dT) - len(stf)/4 * tr.stats.delta
+    yvals = stf
+    xoffset = _dict_mean(dT) * tr.stats.delta
     xvals = tr.stats.delta * np.arange(0, len(yvals)) + xoffset
 
     ax_stf.plot(xvals, yvals)
@@ -145,9 +145,9 @@ def plot_waveforms(st_data, st_synth, arr_times, CC, CClim, dA, dT, stf, depth,
     ax_bb.axis('off')
 
     # Plot Map
-    ax_map = plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
-                      CClim=CClim,
-                      rect=rect_stf, colormap='plasma')
+    plot_map(st_synth, CC, origin.longitude, origin.latitude, fig=fig,
+             CClim=CClim,
+             rect=rect_stf, colormap='plasma')
 
     outfile = os.path.join(outdir, 'waveforms_it_%d.png' % iteration)
     fig.savefig(outfile, format='png')
@@ -169,7 +169,7 @@ def plot_map(st_synth, values, central_longitude, central_latitude, CClim,
         c.append(values[code])
         names.append(code)
 
-    ax = add_ortho(lats=lats, lons=lons, colors=c, CClim=0.5,
+    ax = add_ortho(lats=lats, lons=lons, colors=c, CClim=CClim,
                    text=None, marker=['o', 'd'],
                    colormap=colormap, fig=fig, rect=rect,
                    central_longitude=central_longitude,
@@ -229,14 +229,17 @@ def add_ortho(lats, lons, colors, CClim,
             lons_mark2.append(lon)
             colors_mark2.append(color)
 
-    scatter = ax.scatter(lons_mark1, lats_mark1, s=size, c=colors_mark1,
-                         marker=marker[0],
-                         cmap=cmap, vmin=CClim, vmax=1, zorder=10,
-                         transform=ccrs.Geodetic())
-    scatter = ax.scatter(lons_mark2, lats_mark2, s=size, c=colors_mark2,
-                         marker=marker[1],
-                         cmap=cmap, vmin=CClim, vmax=1, zorder=10,
-                         transform=ccrs.Geodetic())
+    if len(lons_mark1) > 0:
+        scatter = ax.scatter(lons_mark1, lats_mark1, s=size, c=colors_mark1,
+                             marker=marker[0],
+                             cmap=cmap, vmin=CClim, vmax=1, zorder=10,
+                             transform=ccrs.Geodetic())
+
+    if len(lons_mark2) > 0:
+        scatter = ax.scatter(lons_mark2, lats_mark2, s=size, c=colors_mark2,
+                             marker=marker[1],
+                             cmap=cmap, vmin=CClim, vmax=1, zorder=10,
+                             transform=ccrs.Geodetic())
 
     locator = MaxNLocator(5)
 
@@ -249,8 +252,8 @@ def add_ortho(lats, lons, colors, CClim,
     if hasattr(cb, "update_ticks"):
         cb.update_ticks()
 
-    ev = ax.plot(central_longitude, central_latitude, color='red', marker='*',
-                 markersize=np.sqrt(size))
+    ax.plot(central_longitude, central_latitude, color='red', marker='*',
+            markersize=np.sqrt(size))
 
     if (text):
         for lat, lon, text in zip(lats, lons, text):
