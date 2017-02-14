@@ -26,8 +26,8 @@ before_install:
 - sudo rm -rf /dev/shm
 - sudo ln -s /run/shm /dev/shm
 # These are mostly requirements of instaseis
-- conda install -c conda-forge instaseis python=$TRAVIS_PYTHON_VERSION
-  #- conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
+- conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
+- conda install --yes -c conda-forge instaseis python=$TRAVIS_PYTHON_VERSION
 - conda install --yes -c scitools cartopy
 - travis_retry pip install $PIP_DEPS
 - pip install coveralls 
