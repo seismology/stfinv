@@ -1,8 +1,5 @@
 language: python
 
-# sudo false implies containerized builds, so we can use cacheing
-#sudo: false
-
 python:
   - 2.7
   - 3.4
@@ -32,11 +29,12 @@ before_install:
 - conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
 - conda install --yes -c scitools cartopy
 - travis_retry pip install $PIP_DEPS
-- pip install coveralls
+- pip install coveralls 
 - pip install requests responses
+- pip install tqdm
 
 install:
-- pip list
+  #- pip list
 - git clone https://github.com/krischer/instaseis.git
 - cd ./instaseis
 - git status
