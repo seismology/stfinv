@@ -244,21 +244,15 @@ class Stream(obspy.Stream):
                 # Get synthetics
                 # See what exists in the stream that we loaded earlier
                 st_grf6_cache_stat = st_grf6_cache.select(
-                                         station=tr.stats.station,
-                                         network=tr.stats.network,
-                                         location=tr.stats.location)
+                    station=tr.stats.station,
+                    network=tr.stats.network,
+                    location=tr.stats.location)
 
                 if st_grf6_cache_stat:
                     # Greens functions already exists
-                    # print('Greens functions for %s.%s.%s already existed' %
-                    #       (tr.stats.network, tr.stats.station,
-                    #        tr.stats.location))
                     st_synth += st_grf6_cache_stat
                 else:
                     # Greens functions do not exist yet
-                    # print('Greens functions for %s.%s.%s must be caluclated' %
-                    #       (tr.stats.network, tr.stats.station,
-                    #        tr.stats.location))
 
                     # Calculate travel times for the synthetics
                     # Here we use the inversion depth.
@@ -296,7 +290,7 @@ class Stream(obspy.Stream):
 
         return st_data, st_synth
 
-    def calc_timeshift(self, st_b, allow_negative_CC=False, offset=0.0):
+    def calc_timeshift(self, st_b, allow_negative_CC=False):
         """
         dt_all, CC = calc_timeshift(self, st_b, allow_negative_CC)
 
@@ -345,7 +339,7 @@ class Stream(obspy.Stream):
                 # print('%s.%s: %4.1f sec, CC: %f' %
                 #       (tr_a.stats.station, tr_a.stats.location, dt, CC))
                 code = '%s.%s' % (tr_a.stats.station, tr_a.stats.location)
-                dt_all[code] = dt + offset
+                dt_all[code] = dt
                 CC_all[code] = CC
             except IndexError:
                 print('Did not find %s' % (tr_a.stats.station))
@@ -509,6 +503,51 @@ class Stream(obspy.Stream):
     def correct_length(self, npts_target):
         for tr in self:
             _correct_length_trace(tr, npts_target)
+
+
+def correct_waveforms(st_data, st_synth, st_synth_grf6,
+                      freq, allow_negative_CC=False, offset=0.0):
+
+    if allow_negative_CC:
+        print('Allowing polarity reversal')
+
+    # Create working copies of streams
+    st_data_work = st_data.copy()
+    st_synth_work = st_synth.copy()
+    st_synth_grf6_work = st_synth_grf6.copy()
+
+    # if desired, low-pass filter all waveforms
+    if freq:
+        st_data_work.filter('lowpass', freq=freq)
+        st_synth_work.filter('lowpass', freq=freq)
+        st_synth_grf6_work.filter('lowpass', freq=freq)
+
+    # Calculate time shift from combined synthetic waveforms
+    dt, CC = st_data_work.calc_timeshift(st_synth_work,
+                                         allow_negative_CC)
+
+    # Create new stream with time-shifted synthetic seismograms
+    st_synth_work.shift_waveform(dt)
+
+    # Create new stream with time-shifted Green's functions
+    st_synth_grf6_work.shift_waveform(dt)
+
+    # Calculate amplitude misfit
+    dA = st_data_work.calc_amplitude_misfit(st_synth_work)
+
+    # Fill stream with amplitude-corrected synthetic seismograms
+    for tr in st_synth_work:
+        code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        tr.data *= dA[code]
+        tr = shift_waveform(tr, offset)
+
+    # Fill stream with amplitude-corrected Green's functions
+    for tr in st_synth_grf6_work:
+        code = '%s.%s' % (tr.stats.station, tr.stats.location)
+        tr.data *= dA[code]
+        tr = shift_waveform(tr, offset)
+
+    return st_data_work, st_synth_work, st_synth_grf6_work, CC, dt, dA
 
 
 def _correct_length_trace(trace, npts_target):

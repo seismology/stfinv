@@ -21,7 +21,7 @@ class Iteration():
         self.CC = CC
         self.dA = dA
         self.dT = dT
-        self.CClim = CClim,
+        self.CClim = CClim
         self.misfit = misfit
         self.it = it
         self.depth = depth

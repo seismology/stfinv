@@ -280,4 +280,3 @@ def _dict_mean(dictionary):
         i += 1
 
     return np.mean(x)
-
