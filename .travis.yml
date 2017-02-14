@@ -26,7 +26,8 @@ before_install:
 - sudo rm -rf /dev/shm
 - sudo ln -s /run/shm /dev/shm
 # These are mostly requirements of instaseis
-- conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
+- conda install -c conda-forge instaseis python=$TRAVIS_PYTHON_VERSION
+  #- conda install --yes -c obspy nomkl obspy nose pytest flake8 sphinx h5py tornado python=$TRAVIS_PYTHON_VERSION
 - conda install --yes -c scitools cartopy
 - travis_retry pip install $PIP_DEPS
 - pip install coveralls 
@@ -35,19 +36,18 @@ before_install:
 
 install:
   #- pip list
-- git clone https://github.com/krischer/instaseis.git
-- cd ./instaseis
-- git status
-- pip list
-- pip install --no-deps -v -e .
-- pip list
-- cd ..
-# Instaseis should not be tested itself, therefore removing
-#- rm -rf ./instaseis
+  #- git clone https://github.com/krischer/instaseis.git
+  #- cd ./instaseis
+  #- git status
+  #- pip list
+  #- pip install --no-deps -v -e .
+  #- pip list
+  #- cd ..
+  ## Instaseis should not be tested itself, therefore removing
+  ##- rm -rf ./instaseis
 - python setup.py install --record installed_files.txt
 
 script:
-- pip list
 - nosetests -v --with-coverage --cover-package=stfinv -I instaseis
 - flake8 --ignore E402,N802,N806 `find stfinv/* -name \*.py | grep -v setup.py | grep -v /doc/`
 
